@@ -9,7 +9,7 @@ from app.models.vulnerability import Vulnerability, Severity, VulnStatus
 from app.models.asset import Asset, AssetType, AssetCriticality, AssetStatus
 from app.models.incident import Incident, IncidentSeverity, IncidentStatus
 from app.models.compliance import ComplianceControl, ComplianceStandard, ComplianceStatus
-from app.routes import auth, vulnerabilities, compliance, assets, incidents, dashboard, reports
+from app.routes import auth, vulnerabilities, compliance, assets, incidents, dashboard, reports, users, settings, diagnostic
 
 app = FastAPI(
     title="GuardIA GT API",
@@ -34,6 +34,9 @@ app.include_router(compliance.router, prefix="/api/compliance", tags=["Cumplimie
 app.include_router(assets.router, prefix="/api/assets", tags=["Activos"])
 app.include_router(incidents.router, prefix="/api/incidents", tags=["Incidentes"])
 app.include_router(reports.router, prefix="/api/reports", tags=["Reportes"])
+app.include_router(users.router, prefix="/api/users", tags=["Usuarios"])
+app.include_router(settings.router, prefix="/api/settings", tags=["Configuración"])
+app.include_router(diagnostic.router, prefix="/api/diagnostic", tags=["Diagnóstico"])
 
 
 @app.get("/health", tags=["Health"])
