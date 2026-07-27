@@ -41,8 +41,19 @@ async def health_check():
     return {"status": "healthy", "service": "GuardIA GT API", "version": "1.0.0"}
 
 
+@app.on_event("startup")
+def create_tables():
+    from app.core.database import engine, Base
+    from app.models import user, vulnerability, asset, incident, compliance, audit_log
+    Base.metadata.create_all(bind=engine)
+
+
 @app.post("/seed", tags=["Setup"])
 def seed_database(db: Session = Depends(get_db)):
+    from app.core.database import engine, Base
+    from app.models import user, vulnerability, asset, incident, compliance, audit_log
+    Base.metadata.create_all(bind=engine)
+
     if db.query(User).first():
         return {"message": "Database already seeded"}
 
