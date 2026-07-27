@@ -1,6 +1,6 @@
 import { Routes, Route, Navigate } from 'react-router-dom'
 import { Toaster } from 'react-hot-toast'
-import { useAuth } from './hooks/useAuth'
+import { AuthProvider, useAuth } from './context/AuthContext'
 import Layout from './components/Layout'
 import Login from './pages/Login'
 import Dashboard from './pages/Dashboard'
@@ -12,12 +12,13 @@ import Reports from './pages/Reports'
 import AIInsights from './pages/AIInsights'
 
 function ProtectedRoute({ children }: { children: React.ReactNode }) {
-  const { isAuthenticated } = useAuth()
+  const { isAuthenticated, loading } = useAuth()
+  if (loading) return null
   if (!isAuthenticated) return <Navigate to="/login" replace />
   return <>{children}</>
 }
 
-export default function App() {
+function AppRoutes() {
   return (
     <>
       <Toaster position="top-right" toastOptions={{ duration: 4000 }} />
@@ -41,5 +42,13 @@ export default function App() {
         </Route>
       </Routes>
     </>
+  )
+}
+
+export default function App() {
+  return (
+    <AuthProvider>
+      <AppRoutes />
+    </AuthProvider>
   )
 }
