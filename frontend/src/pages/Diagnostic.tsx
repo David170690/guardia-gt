@@ -1,6 +1,6 @@
 import { useState } from 'react'
 import { diagnosticAPI } from '../services/api'
-import { ScanSearch, Plus, Trash2, Server, Shield, AlertTriangle, FileCheck, CheckCircle2 } from 'lucide-react'
+import { ScanSearch, Plus, Trash2, Server, Shield, AlertTriangle, FileCheck, CheckCircle2, ChevronDown, ChevronRight, ExternalLink } from 'lucide-react'
 import toast from 'react-hot-toast'
 
 interface AssetInput {
@@ -27,8 +27,9 @@ export default function Diagnostic() {
   const [assets, setAssets] = useState<AssetInput[]>([
     { name: '', asset_type: 'server', ip_address: '', operating_system: '', criticality: 'medium' },
   ])
-  const [result, setResult] = useState<DiagnosticResult | null>(null)
+  const [result, setResult] = useState<any>(null)
   const [loading, setLoading] = useState(false)
+  const [expandedCard, setExpandedCard] = useState<string | null>(null)
 
   const addAsset = () => {
     setAssets([...assets, { name: '', asset_type: 'server', ip_address: '', operating_system: '', criticality: 'medium' }])
@@ -91,6 +92,23 @@ export default function Diagnostic() {
   }
 
   if (result) {
+    const toggleCard = (card: string) => setExpandedCard(expandedCard === card ? null : card)
+
+    const sevColor: Record<string, string> = {
+      critical: 'text-red-400', high: 'text-orange-400', medium: 'text-yellow-400', low: 'text-green-400',
+    }
+    const statusColor: Record<string, string> = {
+      open: 'text-red-400 bg-red-500/10', in_progress: 'text-yellow-400 bg-yellow-500/10',
+      investigating: 'text-orange-400 bg-orange-500/10', remediated: 'text-green-400 bg-green-500/10',
+      resolved: 'text-green-400 bg-green-500/10', contained: 'text-blue-400 bg-blue-500/10',
+    }
+    const critColor: Record<string, string> = {
+      critical: 'text-red-400', high: 'text-orange-400', medium: 'text-yellow-400', low: 'text-green-400',
+    }
+    const compColor: Record<string, string> = {
+      compliant: 'text-green-400', partial: 'text-yellow-400', non_compliant: 'text-red-400', not_applicable: 'text-gray-400',
+    }
+
     return (
       <div className="p-8">
         <div className="mb-8">
@@ -107,27 +125,125 @@ export default function Diagnostic() {
         </div>
 
         <div className="grid grid-cols-4 gap-4 mb-8">
-          <div className="bg-[#111c32] border border-white/5 rounded-xl p-5 text-center">
+          <button onClick={() => toggleCard('assets')} className={`bg-[#111c32] border rounded-xl p-5 text-center transition-all hover:border-cyan-500/30 ${expandedCard === 'assets' ? 'border-cyan-500/50 ring-1 ring-cyan-500/20' : 'border-white/5'}`}>
             <Server className="w-8 h-8 text-cyan-400 mx-auto mb-2" />
             <p className="text-3xl font-bold text-white">{result.assets_created}</p>
             <p className="text-sm text-gray-400">Activos Escaneados</p>
-          </div>
-          <div className="bg-[#111c32] border border-white/5 rounded-xl p-5 text-center">
+            <p className="text-xs text-cyan-400 mt-1 flex items-center justify-center gap-1">{expandedCard === 'assets' ? 'Ocultar' : 'Ver detalle'} {expandedCard === 'assets' ? <ChevronDown className="w-3 h-3" /> : <ChevronRight className="w-3 h-3" />}</p>
+          </button>
+          <button onClick={() => toggleCard('vulns')} className={`bg-[#111c32] border rounded-xl p-5 text-center transition-all hover:border-red-500/30 ${expandedCard === 'vulns' ? 'border-red-500/50 ring-1 ring-red-500/20' : 'border-white/5'}`}>
             <Shield className="w-8 h-8 text-red-400 mx-auto mb-2" />
             <p className="text-3xl font-bold text-white">{result.vulnerabilities_found}</p>
             <p className="text-sm text-gray-400">Vulnerabilidades</p>
-          </div>
-          <div className="bg-[#111c32] border border-white/5 rounded-xl p-5 text-center">
+            <p className="text-xs text-red-400 mt-1 flex items-center justify-center gap-1">{expandedCard === 'vulns' ? 'Ocultar' : 'Ver detalle'} {expandedCard === 'vulns' ? <ChevronDown className="w-3 h-3" /> : <ChevronRight className="w-3 h-3" />}</p>
+          </button>
+          <button onClick={() => toggleCard('incidents')} className={`bg-[#111c32] border rounded-xl p-5 text-center transition-all hover:border-orange-500/30 ${expandedCard === 'incidents' ? 'border-orange-500/50 ring-1 ring-orange-500/20' : 'border-white/5'}`}>
             <AlertTriangle className="w-8 h-8 text-orange-400 mx-auto mb-2" />
             <p className="text-3xl font-bold text-white">{result.incidents_created}</p>
             <p className="text-sm text-gray-400">Incidentes</p>
-          </div>
-          <div className="bg-[#111c32] border border-white/5 rounded-xl p-5 text-center">
+            <p className="text-xs text-orange-400 mt-1 flex items-center justify-center gap-1">{expandedCard === 'incidents' ? 'Ocultar' : 'Ver detalle'} {expandedCard === 'incidents' ? <ChevronDown className="w-3 h-3" /> : <ChevronRight className="w-3 h-3" />}</p>
+          </button>
+          <button onClick={() => toggleCard('compliance')} className={`bg-[#111c32] border rounded-xl p-5 text-center transition-all hover:border-green-500/30 ${expandedCard === 'compliance' ? 'border-green-500/50 ring-1 ring-green-500/20' : 'border-white/5'}`}>
             <FileCheck className="w-8 h-8 text-green-400 mx-auto mb-2" />
             <p className="text-3xl font-bold text-white">{result.compliance_score}%</p>
             <p className="text-sm text-gray-400">Cumplimiento</p>
-          </div>
+            <p className="text-xs text-green-400 mt-1 flex items-center justify-center gap-1">{expandedCard === 'compliance' ? 'Ocultar' : 'Ver detalle'} {expandedCard === 'compliance' ? <ChevronDown className="w-3 h-3" /> : <ChevronRight className="w-3 h-3" />}</p>
+          </button>
         </div>
+
+        {/* DETALLE: ACTIVOS */}
+        {expandedCard === 'assets' && result.assets_detail && (
+          <div className="bg-[#111c32] border border-cyan-500/20 rounded-xl p-6 mb-6">
+            <h3 className="text-lg font-semibold text-white mb-4 flex items-center gap-2"><Server className="w-5 h-5 text-cyan-400" /> Activos Escaneados</h3>
+            <div className="grid grid-cols-1 md:grid-cols-2 lg:grid-cols-3 gap-3">
+              {result.assets_detail.map((a: any) => (
+                <div key={a.id} className="bg-[#0d1424] border border-white/5 rounded-lg p-4">
+                  <div className="flex items-center justify-between mb-2">
+                    <span className="text-white font-medium">{a.name}</span>
+                    <span className={`text-xs font-semibold uppercase ${critColor[a.criticality] || 'text-gray-400'}`}>{a.criticality}</span>
+                  </div>
+                  <div className="space-y-1 text-sm text-gray-400">
+                    <p>Tipo: <span className="text-gray-300">{a.asset_type}</span></p>
+                    <p>IP: <span className="text-gray-300">{a.ip_address || 'N/A'}</span></p>
+                    <p>SO: <span className="text-gray-300">{a.operating_system || 'N/A'}</span></p>
+                    <p>Estado: <span className="text-green-400">{a.status}</span></p>
+                  </div>
+                </div>
+              ))}
+            </div>
+          </div>
+        )}
+
+        {/* DETALLE: VULNERABILIDADES */}
+        {expandedCard === 'vulns' && result.vulns_detail && (
+          <div className="bg-[#111c32] border border-red-500/20 rounded-xl p-6 mb-6">
+            <h3 className="text-lg font-semibold text-white mb-4 flex items-center gap-2"><Shield className="w-5 h-5 text-red-400" /> Vulnerabilidades Detectadas</h3>
+            <div className="space-y-2">
+              {result.vulns_detail.map((v: any) => (
+                <div key={v.id} className="bg-[#0d1424] border border-white/5 rounded-lg p-4 flex items-center gap-4">
+                  <div className="text-center min-w-[60px]">
+                    <p className={`text-xl font-bold ${sevColor[v.severity] || 'text-gray-400'}`}>{v.cvss_score}</p>
+                    <p className="text-xs text-gray-500">CVSS</p>
+                  </div>
+                  <div className="flex-1">
+                    <p className="text-white font-medium">{v.title}</p>
+                    <p className="text-sm text-gray-400">{v.cve_id} — {v.affected_component}</p>
+                    {v.solution && <p className="text-xs text-cyan-400 mt-1">Solución: {v.solution}</p>}
+                  </div>
+                  <div className="text-right">
+                    <span className={`inline-block px-2 py-1 rounded text-xs font-medium uppercase ${sevColor[v.severity]}`}>{v.severity}</span>
+                    <p className={`text-xs mt-1 ${statusColor[v.status]?.split(' ')[0] || 'text-gray-400'}`}>{v.status}</p>
+                  </div>
+                </div>
+              ))}
+            </div>
+          </div>
+        )}
+
+        {/* DETALLE: INCIDENTES */}
+        {expandedCard === 'incidents' && result.incidents_detail && (
+          <div className="bg-[#111c32] border border-orange-500/20 rounded-xl p-6 mb-6">
+            <h3 className="text-lg font-semibold text-white mb-4 flex items-center gap-2"><AlertTriangle className="w-5 h-5 text-orange-400" /> Incidentes Generados</h3>
+            <div className="space-y-2">
+              {result.incidents_detail.map((inc: any) => (
+                <div key={inc.id} className="bg-[#0d1424] border border-white/5 rounded-lg p-4 flex items-center gap-4">
+                  <div className={`w-3 h-3 rounded-full flex-shrink-0 ${inc.severity === 'critical' ? 'bg-red-500' : inc.severity === 'high' ? 'bg-orange-500' : inc.severity === 'medium' ? 'bg-yellow-500' : 'bg-green-500'}`} />
+                  <div className="flex-1">
+                    <p className="text-white font-medium">{inc.title}</p>
+                    <p className="text-sm text-gray-400">Activo: {inc.affected_asset || 'N/A'}</p>
+                    {inc.response_action && <p className="text-xs text-cyan-400 mt-1">Acción: {inc.response_action}</p>}
+                  </div>
+                  <div className="text-right">
+                    <span className={`inline-block px-2 py-1 rounded text-xs font-medium uppercase ${sevColor[inc.severity] || 'text-gray-400'}`}>{inc.severity}</span>
+                    <p className={`text-xs mt-1 px-2 py-0.5 rounded inline-block ${statusColor[inc.status] || 'text-gray-400 bg-gray-500/10'}`}>{inc.status}</p>
+                  </div>
+                </div>
+              ))}
+            </div>
+          </div>
+        )}
+
+        {/* DETALLE: CUMPLIMIENTO */}
+        {expandedCard === 'compliance' && result.compliance_detail && (
+          <div className="bg-[#111c32] border border-green-500/20 rounded-xl p-6 mb-6">
+            <h3 className="text-lg font-semibold text-white mb-4 flex items-center gap-2"><FileCheck className="w-5 h-5 text-green-400" /> Controles de Cumplimiento</h3>
+            <div className="space-y-2">
+              {result.compliance_detail.map((c: any, i: number) => (
+                <div key={i} className="bg-[#0d1424] border border-white/5 rounded-lg p-4 flex items-center gap-4">
+                  <div className="text-center min-w-[50px]">
+                    <p className="text-lg font-bold text-white">{c.score}%</p>
+                  </div>
+                  <div className="flex-1">
+                    <p className="text-white font-medium">{c.control_name}</p>
+                    <p className="text-sm text-gray-400">{c.standard.toUpperCase()} — {c.control_id}</p>
+                    {c.findings && <p className="text-xs text-yellow-400 mt-1">Hallazgo: {c.findings}</p>}
+                  </div>
+                  <span className={`text-xs font-semibold uppercase ${compColor[c.status] || 'text-gray-400'}`}>{c.status}</span>
+                </div>
+              ))}
+            </div>
+          </div>
+        )}
 
         <button onClick={() => { setResult(null); setOrgName(''); setAssets([{ name: '', asset_type: 'server', ip_address: '', operating_system: '', criticality: 'medium' }]) }} className="px-6 py-2.5 bg-gradient-to-r from-cyan-500 to-blue-500 text-white font-medium rounded-lg hover:from-cyan-600 hover:to-blue-600 transition-all">
           Nuevo Diagnóstico

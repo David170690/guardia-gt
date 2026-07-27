@@ -27,6 +27,41 @@ class DiagnosticRequest(BaseModel):
     scan_type: str = "full"
 
 
+class AssetDetail(BaseModel):
+    id: int
+    name: str
+    asset_type: str
+    ip_address: Optional[str]
+    operating_system: Optional[str]
+    criticality: str
+    status: str
+
+class VulnDetail(BaseModel):
+    id: int
+    cve_id: str
+    title: str
+    cvss_score: float
+    severity: str
+    status: str
+    affected_component: Optional[str]
+    solution: Optional[str]
+
+class IncidentDetail(BaseModel):
+    id: int
+    title: str
+    severity: str
+    status: str
+    affected_asset: Optional[str]
+    response_action: Optional[str]
+
+class ComplianceDetail(BaseModel):
+    standard: str
+    control_id: str
+    control_name: str
+    status: str
+    score: float
+    findings: Optional[str]
+
 class DiagnosticResult(BaseModel):
     assets_created: int
     vulnerabilities_found: int
@@ -34,6 +69,10 @@ class DiagnosticResult(BaseModel):
     compliance_score: float
     risk_level: str
     summary: str
+    assets_detail: List[AssetDetail]
+    vulns_detail: List[VulnDetail]
+    incidents_detail: List[IncidentDetail]
+    compliance_detail: List[ComplianceDetail]
 
 
 @router.post("/run", response_model=DiagnosticResult)
@@ -150,6 +189,40 @@ def run_diagnostic(request: DiagnosticRequest, db: Session = Depends(get_db)):
         f"Nivel de riesgo: {risk_level.upper()}."
     )
 
+    assets_detail = [
+        AssetDetail(id=a.id, name=a.name, asset_type=a.asset_type.value, ip_address=a.ip_address,
+                    operating_system=a.operating_system, criticality=a.criticality.value, status=a.status.value)
+        for a in new_assets
+    ]
+
+    vulns_in_db = db.query(Vulnerability).filter(
+        Vulnerability.asset_id.in_([a.id for a in new_assets])
+    ).all()
+    vulns_detail = [
+        VulnDetail(id=v.id, cve_id=v.cve_id, title=v.title, cvss_score=v.cvss_score,
+                   severity=v.severity.value, status=v.status.value,
+                   affected_component=v.affected_component, solution=v.solution)
+        for v in vulns_in_db
+    ]
+
+    incidents_in_db = db.query(Incident).filter(
+        Incident.affected_asset.in_([a.name for a in new_assets])
+    ).all()
+    incidents_detail = [
+        IncidentDetail(id=inc.id, title=inc.title, severity=inc.severity.value,
+                       status=inc.status.value, affected_asset=inc.affected_asset,
+                       response_action=inc.response_action)
+        for inc in incidents_in_db
+    ]
+
+    controls_in_db = db.query(ComplianceControl).all()
+    compliance_detail = [
+        ComplianceDetail(standard=c.standard.value, control_id=c.control_id,
+                         control_name=c.control_name, status=c.status.value,
+                         score=c.score, findings=c.findings)
+        for c in controls_in_db
+    ]
+
     return DiagnosticResult(
         assets_created=assets_created,
         vulnerabilities_found=vulns_found,
@@ -157,4 +230,8 @@ def run_diagnostic(request: DiagnosticRequest, db: Session = Depends(get_db)):
         compliance_score=round(compliance_score, 1),
         risk_level=risk_level,
         summary=summary,
+        assets_detail=assets_detail,
+        vulns_detail=vulns_detail,
+        incidents_detail=incidents_detail,
+        compliance_detail=compliance_detail,
     )
