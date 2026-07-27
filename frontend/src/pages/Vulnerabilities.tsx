@@ -1,7 +1,7 @@
 import { useState, useEffect } from 'react'
 import { vulnerabilitiesAPI } from '../services/api'
 import { Vulnerability, VulnerabilityStats } from '../types'
-import { Shield, AlertCircle, CheckCircle, Clock, Search } from 'lucide-react'
+import { Shield } from 'lucide-react'
 
 const severityConfig: Record<string, { bg: string; text: string; label: string }> = {
   critical: { bg: 'bg-red-500/10', text: 'text-red-400', label: 'Crítico' },

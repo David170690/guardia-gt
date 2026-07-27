@@ -1,7 +1,7 @@
 import { useState, useEffect } from 'react'
 import { incidentsAPI } from '../services/api'
 import { Incident, IncidentStats } from '../types'
-import { AlertTriangle, Clock, CheckCircle, Search } from 'lucide-react'
+import { AlertTriangle } from 'lucide-react'
 
 const severityConfig: Record<string, { bg: string; text: string; border: string; label: string }> = {
   critical: { bg: 'bg-red-500/10', text: 'text-red-400', border: 'border-l-red-500', label: 'Crítico' },

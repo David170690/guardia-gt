@@ -1,7 +1,7 @@
 import { useState, useEffect } from 'react'
 import { assetsAPI } from '../services/api'
 import { Asset, AssetStats } from '../types'
-import { Server, Wifi, WifiOff, Monitor, Globe, Database, Cloud } from 'lucide-react'
+import { Server, Monitor, Globe, Database, Cloud } from 'lucide-react'
 
 const typeIcons: Record<string, any> = {
   server: Server,

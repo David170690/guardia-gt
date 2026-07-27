@@ -1,6 +1,6 @@
 import { useState, useEffect } from 'react'
 import { complianceAPI } from '../services/api'
-import { ComplianceDashboard, ComplianceStandardStats } from '../types'
+import { ComplianceDashboard } from '../types'
 import { FileCheck, CheckCircle, AlertCircle, XCircle } from 'lucide-react'
 
 const standardNames: Record<string, string> = {

@@ -1,6 +1,6 @@
 import { useState, useEffect } from 'react'
 import { dashboardAPI } from '../services/api'
-import { DashboardData, ThreatItem, RiskCategory } from '../types'
+import { DashboardData, ThreatItem } from '../types'
 import {
   Shield,
   AlertTriangle,

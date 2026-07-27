@@ -1,7 +1,7 @@
 import { useState, useEffect } from 'react'
 import { reportsAPI } from '../services/api'
 import { Report } from '../types'
-import { BarChart3, Download, Clock, FileText, TrendingDown } from 'lucide-react'
+import { BarChart3, Download, FileText, TrendingDown } from 'lucide-react'
 import {
   LineChart,
   Line,
@@ -58,12 +58,9 @@ export default function Reports() {
           </div>
           <div className="h-64">
             <ResponsiveContainer width="100%" height="100%">
-              <LineChart data={trends ? {
-                months: trends.months,
-                risk_scores: trends.risk_scores,
-              } : { months: [], risk_scores: [] }}>
+              <LineChart data={trends ? trends.months.map((m: string, i: number) => ({ month: m, risk: trends.risk_scores[i] })) : []}>
                 <CartesianGrid strokeDasharray="3 3" stroke="#1e293b" />
-                <XAxis dataKey="months" stroke="#64748b" fontSize={12} />
+                <XAxis dataKey="month" stroke="#64748b" fontSize={12} />
                 <YAxis stroke="#64748b" fontSize={12} />
                 <Tooltip
                   contentStyle={{
@@ -74,7 +71,7 @@ export default function Reports() {
                 />
                 <Line
                   type="monotone"
-                  dataKey="risk_scores"
+                  dataKey="risk"
                   stroke="#ef4444"
                   strokeWidth={2}
                   dot={{ fill: '#ef4444', strokeWidth: 2 }}
