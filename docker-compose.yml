@@ -1,0 +1,49 @@
+version: "3.8"
+
+services:
+  postgres:
+    image: postgres:16-alpine
+    container_name: guardia-postgres
+    environment:
+      POSTGRES_DB: guardia_gt
+      POSTGRES_USER: guardia
+      POSTGRES_PASSWORD: guardia123
+    ports:
+      - "5432:5432"
+    volumes:
+      - postgres_data:/var/lib/postgresql/data
+    healthcheck:
+      test: ["CMD-SHELL", "pg_isready -U guardia -d guardia_gt"]
+      interval: 10s
+      timeout: 5s
+      retries: 5
+
+  backend:
+    build: ./backend
+    container_name: guardia-backend
+    ports:
+      - "8000:8000"
+    environment:
+      DATABASE_URL: postgresql://guardia:guardia123@postgres:5432/guardia_gt
+      SECRET_KEY: guardia-gt-secret-key-change-in-production-2026
+    depends_on:
+      postgres:
+        condition: service_healthy
+    volumes:
+      - ./backend:/app
+
+  frontend:
+    build: ./frontend
+    container_name: guardia-frontend
+    ports:
+      - "5173:5173"
+    environment:
+      VITE_API_URL: http://localhost:8000
+    depends_on:
+      - backend
+    volumes:
+      - ./frontend:/app
+      - /app/node_modules
+
+volumes:
+  postgres_data:

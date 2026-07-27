@@ -1,0 +1,45 @@
+import { Routes, Route, Navigate } from 'react-router-dom'
+import { Toaster } from 'react-hot-toast'
+import { useAuth } from './hooks/useAuth'
+import Layout from './components/Layout'
+import Login from './pages/Login'
+import Dashboard from './pages/Dashboard'
+import Vulnerabilities from './pages/Vulnerabilities'
+import Compliance from './pages/Compliance'
+import Assets from './pages/Assets'
+import Incidents from './pages/Incidents'
+import Reports from './pages/Reports'
+import AIInsights from './pages/AIInsights'
+
+function ProtectedRoute({ children }: { children: React.ReactNode }) {
+  const { isAuthenticated } = useAuth()
+  if (!isAuthenticated) return <Navigate to="/login" replace />
+  return <>{children}</>
+}
+
+export default function App() {
+  return (
+    <>
+      <Toaster position="top-right" toastOptions={{ duration: 4000 }} />
+      <Routes>
+        <Route path="/login" element={<Login />} />
+        <Route
+          path="/"
+          element={
+            <ProtectedRoute>
+              <Layout />
+            </ProtectedRoute>
+          }
+        >
+          <Route index element={<Dashboard />} />
+          <Route path="vulnerabilities" element={<Vulnerabilities />} />
+          <Route path="compliance" element={<Compliance />} />
+          <Route path="assets" element={<Assets />} />
+          <Route path="incidents" element={<Incidents />} />
+          <Route path="reports" element={<Reports />} />
+          <Route path="ai" element={<AIInsights />} />
+        </Route>
+      </Routes>
+    </>
+  )
+}
