@@ -1,5 +1,6 @@
+import json
 from pydantic_settings import BaseSettings
-from typing import List
+from typing import List, Union
 
 
 class Settings(BaseSettings):
@@ -13,23 +14,22 @@ class Settings(BaseSettings):
     ACCESS_TOKEN_EXPIRE_MINUTES: int = 30
     REFRESH_TOKEN_EXPIRE_DAYS: int = 7
 
-    CORS_ORIGINS: List[str] = [
-        "http://localhost:5173",
-        "http://localhost:3000",
-        "https://guardia.gt",
-        "https://www.guardia.gt",
-    ]
+    CORS_ORIGINS: Union[str, List[str]] = '["http://localhost:5173","http://localhost:3000"]'
 
     OPENAI_API_KEY: str = ""
     OPENAI_MODEL: str = "gpt-4"
 
-    AWS_ACCESS_KEY_ID: str = ""
-    AWS_SECRET_ACCESS_KEY: str = ""
-    AWS_REGION: str = "us-east-1"
-
     class Config:
         env_file = ".env"
         case_sensitive = True
+
+    def get_cors_origins(self) -> List[str]:
+        if isinstance(self.CORS_ORIGINS, str):
+            try:
+                return json.loads(self.CORS_ORIGINS)
+            except json.JSONDecodeError:
+                return [o.strip() for o in self.CORS_ORIGINS.split(",")]
+        return self.CORS_ORIGINS
 
 
 settings = Settings()
