@@ -47,14 +47,15 @@ export default function Diagnostic() {
 
   const handleScan = async () => {
     if (!orgName.trim()) { toast.error('Ingresa el nombre de la organización'); return }
-    if (assets.some(a => !a.name.trim())) { toast.error('Todos los activos deben tener nombre'); return }
+    const validAssets = assets.filter(a => a.name.trim())
+    if (validAssets.length === 0) { toast.error('Agrega al menos un activo con nombre'); return }
 
     setLoading(true)
     try {
       const res = await diagnosticAPI.run({
         organization_name: orgName,
         ip_range: ipRange,
-        assets: assets.filter(a => a.name.trim()),
+        assets: validAssets,
         scan_type: scanType,
       })
       setResult(res.data)
