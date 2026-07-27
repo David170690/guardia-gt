@@ -10,16 +10,25 @@ import {
   Brain,
   LogOut,
   ShieldCheck,
+  Users,
+  ScanSearch,
+  Settings,
 } from 'lucide-react'
 
 const navItems = [
   { to: '/', icon: LayoutDashboard, label: 'Dashboard' },
+  { to: '/diagnostic', icon: ScanSearch, label: 'Nuevo Diagnóstico' },
   { to: '/vulnerabilities', icon: Shield, label: 'Vulnerabilidades' },
   { to: '/compliance', icon: FileCheck, label: 'Cumplimiento' },
   { to: '/assets', icon: Server, label: 'Activos' },
   { to: '/incidents', icon: AlertTriangle, label: 'Incidentes' },
   { to: '/ai', icon: Brain, label: 'IA Predictiva' },
   { to: '/reports', icon: BarChart3, label: 'Reportes' },
+]
+
+const adminItems = [
+  { to: '/users', icon: Users, label: 'Usuarios' },
+  { to: '/settings', icon: Settings, label: 'Configuración' },
 ]
 
 export default function Layout() {
@@ -52,6 +61,25 @@ export default function Layout() {
               key={item.to}
               to={item.to}
               end={item.to === '/'}
+              className={({ isActive }) =>
+                `flex items-center gap-3 px-3 py-2.5 rounded-lg text-sm font-medium transition-colors ${
+                  isActive
+                    ? 'bg-cyan-500/10 text-cyan-400'
+                    : 'text-gray-400 hover:text-white hover:bg-white/5'
+                }`
+              }
+            >
+              <item.icon className="w-5 h-5" />
+              {item.label}
+            </NavLink>
+          ))}
+          <div className="pt-3 mt-3 border-t border-white/5">
+            <p className="px-3 py-1 text-xs font-semibold text-gray-500 uppercase">Admin</p>
+          </div>
+          {adminItems.map((item) => (
+            <NavLink
+              key={item.to}
+              to={item.to}
               className={({ isActive }) =>
                 `flex items-center gap-3 px-3 py-2.5 rounded-lg text-sm font-medium transition-colors ${
                   isActive

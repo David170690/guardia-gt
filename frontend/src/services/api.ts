@@ -83,4 +83,23 @@ export const reportsAPI = {
   getTrends: () => api.get('/api/reports/trends'),
 }
 
+export const usersAPI = {
+  list: () => api.get('/api/users/'),
+  create: (data: any) => api.post('/api/users/', data),
+  update: (id: number, data: any) => api.put(`/api/users/${id}`, data),
+  delete: (id: number) => api.delete(`/api/users/${id}`),
+  toggleActive: (id: number) => api.patch(`/api/users/${id}/toggle-active`),
+}
+
+export const diagnosticAPI = {
+  run: (data: any) => api.post('/api/diagnostic/run', data),
+}
+
+export const settingsAPI = {
+  getProfile: () => api.get('/api/settings/profile'),
+  updateProfile: (data: any) => api.put('/api/settings/profile', data),
+  changePassword: (data: any) => api.put('/api/settings/password', data),
+  getSystem: () => api.get('/api/settings/system'),
+}
+
 export default api

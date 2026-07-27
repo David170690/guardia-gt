@@ -10,6 +10,9 @@ import Assets from './pages/Assets'
 import Incidents from './pages/Incidents'
 import Reports from './pages/Reports'
 import AIInsights from './pages/AIInsights'
+import UsersPage from './pages/Users'
+import Diagnostic from './pages/Diagnostic'
+import SettingsPage from './pages/Settings'
 
 function ProtectedRoute({ children }: { children: React.ReactNode }) {
   const { isAuthenticated, loading } = useAuth()
@@ -33,12 +36,15 @@ function AppRoutes() {
           }
         >
           <Route index element={<Dashboard />} />
+          <Route path="diagnostic" element={<Diagnostic />} />
           <Route path="vulnerabilities" element={<Vulnerabilities />} />
           <Route path="compliance" element={<Compliance />} />
           <Route path="assets" element={<Assets />} />
           <Route path="incidents" element={<Incidents />} />
           <Route path="reports" element={<Reports />} />
           <Route path="ai" element={<AIInsights />} />
+          <Route path="users" element={<UsersPage />} />
+          <Route path="settings" element={<SettingsPage />} />
         </Route>
       </Routes>
     </>
