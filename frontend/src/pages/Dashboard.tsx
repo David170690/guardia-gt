@@ -22,6 +22,7 @@ import {
 } from 'recharts'
 import { DashboardSkeleton } from '../components/Skeleton'
 import { StaggerChildren, StaggerItem } from '../components/PageTransition'
+import Sparkline from '../components/Sparkline'
 
 const severityColors: Record<string, string> = {
   critical: 'bg-red-500',
@@ -72,10 +73,10 @@ export default function Dashboard() {
   if (!data) return null
 
   const kpiCards = [
-    { ...data.vulnerabilities, icon: Shield, color: 'from-red-500 to-orange-500' },
-    { ...data.compliance, icon: FileCheck, color: 'from-green-500 to-emerald-500' },
-    { ...data.assets, icon: Server, color: 'from-blue-500 to-cyan-500' },
-    { ...data.incidents, icon: AlertTriangle, color: 'from-orange-500 to-yellow-500' },
+    { ...data.vulnerabilities, icon: Shield, color: 'from-red-500 to-orange-500', sparkData: [12, 15, 11, 14, 13, 12], sparkColor: '#ef4444' },
+    { ...data.compliance, icon: FileCheck, color: 'from-green-500 to-emerald-500', sparkData: [40, 42, 45, 48, 50, 50], sparkColor: '#22c55e' },
+    { ...data.assets, icon: Server, color: 'from-blue-500 to-cyan-500', sparkData: [4, 5, 5, 6, 6, 6], sparkColor: '#3b82f6' },
+    { ...data.incidents, icon: AlertTriangle, color: 'from-orange-500 to-yellow-500', sparkData: [5, 4, 3, 4, 3, 2], sparkColor: '#f97316' },
   ]
 
   return (
@@ -141,10 +142,9 @@ export default function Dashboard() {
               <div className={`w-10 h-10 rounded-lg bg-gradient-to-br ${kpi.color} flex items-center justify-center`}>
                 <kpi.icon className="w-5 h-5 text-white" />
               </div>
-              {kpi.trend === 'up' && <TrendingUp className="w-4 h-4 text-green-400" />}
-              {kpi.trend === 'down' && <TrendingDown className="w-4 h-4 text-red-400" />}
+              <Sparkline data={kpi.sparkData} color={kpi.sparkColor} width={60} height={24} />
             </div>
-            <p className="text-2xl font-bold text-white">{kpi.value}</p>
+            <p className="text-2xl font-bold text-white tabular-nums">{kpi.value}</p>
             <p className="text-sm text-gray-400 mt-1">{kpi.label}</p>
             {kpi.change && (
               <p className="text-xs text-cyan-400 mt-2">{kpi.change}</p>

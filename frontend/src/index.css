@@ -15,12 +15,25 @@
 
 body {
   margin: 0;
-  font-family: 'Inter', -apple-system, BlinkMacSystemFont, 'Segoe UI', Roboto, sans-serif;
+  font-family: 'Plus Jakarta Sans', 'Inter', -apple-system, BlinkMacSystemFont, 'Segoe UI', Roboto, sans-serif;
   background-color: var(--bg-primary);
   color: var(--text-primary);
   -webkit-font-smoothing: antialiased;
   -moz-osx-font-smoothing: grayscale;
+  letter-spacing: -0.01em;
 }
+
+/* Typography Scale */
+.text-display { font-size: 3rem; line-height: 1.1; font-weight: 800; letter-spacing: -0.03em; }
+.text-h1 { font-size: 2rem; line-height: 1.2; font-weight: 700; letter-spacing: -0.02em; }
+.text-h2 { font-size: 1.5rem; line-height: 1.3; font-weight: 700; letter-spacing: -0.02em; }
+.text-h3 { font-size: 1.25rem; line-height: 1.4; font-weight: 600; letter-spacing: -0.01em; }
+.text-body { font-size: 1rem; line-height: 1.5; font-weight: 400; }
+.text-small { font-size: 0.875rem; line-height: 1.5; font-weight: 400; }
+.text-xs { font-size: 0.75rem; line-height: 1.5; font-weight: 500; letter-spacing: 0.02em; }
+
+/* Tabular Numbers for Data */
+.tabular-nums { font-variant-numeric: tabular-nums; }
 
 * {
   box-sizing: border-box;
