@@ -1,6 +1,7 @@
 import { useState, useEffect } from 'react'
 import { dashboardAPI } from '../services/api'
 import { DashboardData, ThreatItem } from '../types'
+import { motion } from 'framer-motion'
 import {
   Shield,
   AlertTriangle,
@@ -19,6 +20,8 @@ import {
   Tooltip,
   ResponsiveContainer,
 } from 'recharts'
+import { DashboardSkeleton } from '../components/Skeleton'
+import { StaggerChildren, StaggerItem } from '../components/PageTransition'
 
 const severityColors: Record<string, string> = {
   critical: 'bg-red-500',
@@ -32,6 +35,19 @@ const severityTextColors: Record<string, string> = {
   high: 'text-orange-400',
   medium: 'text-yellow-400',
   low: 'text-green-400',
+}
+
+const container = {
+  hidden: { opacity: 0 },
+  show: {
+    opacity: 1,
+    transition: { staggerChildren: 0.08 },
+  },
+}
+
+const item = {
+  hidden: { opacity: 0, y: 20 },
+  show: { opacity: 1, y: 0, transition: { duration: 0.4, ease: 'easeOut' } },
 }
 
 export default function Dashboard() {
@@ -52,14 +68,7 @@ export default function Dashboard() {
     fetchData()
   }, [])
 
-  if (loading) {
-    return (
-      <div className="flex items-center justify-center h-full">
-        <div className="animate-spin rounded-full h-8 w-8 border-b-2 border-cyan-500" />
-      </div>
-    )
-  }
-
+  if (loading) return <DashboardSkeleton />
   if (!data) return null
 
   const kpiCards = [
@@ -70,19 +79,30 @@ export default function Dashboard() {
   ]
 
   return (
-    <div className="p-6 space-y-6">
-      <div className="flex items-center justify-between">
+    <motion.div
+      variants={container}
+      initial="hidden"
+      animate="show"
+      className="p-6 space-y-6 grid-bg"
+    >
+      {/* Header */}
+      <motion.div variants={item} className="flex items-center justify-between">
         <div>
-          <h1 className="text-2xl font-bold text-white">Dashboard Ejecutivo</h1>
+          <h1 className="text-2xl font-bold text-white glow-text-cyan">Dashboard Ejecutivo</h1>
           <p className="text-gray-400 mt-1">Monitoreo en tiempo real de seguridad</p>
         </div>
-        <div className="flex items-center gap-2">
+        <div className="flex items-center gap-2 glass px-3 py-2 rounded-lg">
+          <div className="w-2 h-2 rounded-full bg-green-400 animate-pulse" />
           <Activity className="w-4 h-4 text-cyan-400" />
-          <span className="text-sm text-gray-400">Última actualización: hace 12s</span>
+          <span className="text-sm text-gray-400">En vivo</span>
         </div>
-      </div>
+      </motion.div>
 
-      <div className="bg-gradient-to-r from-[#111c32] to-[#1a2744] border border-white/10 rounded-xl p-4 flex items-center justify-between">
+      {/* Risk Level Banner */}
+      <motion.div
+        variants={item}
+        className="glass-strong rounded-xl p-4 flex items-center justify-between border-glow"
+      >
         <div className="flex items-center gap-4">
           <div className={`w-12 h-12 rounded-lg flex items-center justify-center ${
             data.risk_level === 'BAJO' ? 'bg-green-500/20' :
@@ -107,13 +127,15 @@ export default function Dashboard() {
           <p className="text-sm text-gray-400">Score de Riesgo</p>
           <p className="text-3xl font-bold text-white">{data.risk_score}/100</p>
         </div>
-      </div>
+      </motion.div>
 
+      {/* KPI Cards */}
       <div className="grid grid-cols-1 md:grid-cols-2 lg:grid-cols-4 gap-4">
         {kpiCards.map((kpi, index) => (
-          <div
+          <motion.div
             key={index}
-            className="bg-[#111c32] border border-white/10 rounded-xl p-4 hover:border-cyan-500/30 transition-colors"
+            variants={item}
+            className="glass-card rounded-xl p-4 cursor-pointer"
           >
             <div className="flex items-center justify-between mb-3">
               <div className={`w-10 h-10 rounded-lg bg-gradient-to-br ${kpi.color} flex items-center justify-center`}>
@@ -127,42 +149,53 @@ export default function Dashboard() {
             {kpi.change && (
               <p className="text-xs text-cyan-400 mt-2">{kpi.change}</p>
             )}
-          </div>
+          </motion.div>
         ))}
       </div>
 
+      {/* Charts Row */}
       <div className="grid grid-cols-1 lg:grid-cols-2 gap-6">
-        <div className="bg-[#111c32] border border-white/10 rounded-xl p-5">
+        <motion.div variants={item} className="glass-card rounded-xl p-5">
           <h3 className="text-lg font-semibold text-white mb-4">Nivel de Riesgo por Categoría</h3>
           <div className="h-64">
             <ResponsiveContainer width="100%" height="100%">
               <BarChart data={data.risk_categories}>
-                <CartesianGrid strokeDasharray="3 3" stroke="#1e293b" />
+                <CartesianGrid strokeDasharray="3 3" stroke="rgba(255,255,255,0.05)" />
                 <XAxis dataKey="category" stroke="#64748b" fontSize={12} />
                 <YAxis stroke="#64748b" fontSize={12} />
                 <Tooltip
                   contentStyle={{
-                    backgroundColor: '#1e293b',
+                    background: 'rgba(17, 28, 50, 0.9)',
+                    backdropFilter: 'blur(8px)',
                     border: '1px solid rgba(255,255,255,0.1)',
                     borderRadius: '8px',
                   }}
                 />
-                <Bar dataKey="score" fill="#06b6d4" radius={[4, 4, 0, 0]} />
+                <Bar dataKey="score" fill="url(#gradient)" radius={[4, 4, 0, 0]} />
+                <defs>
+                  <linearGradient id="gradient" x1="0" y1="0" x2="0" y2="1">
+                    <stop offset="0%" stopColor="#06b6d4" stopOpacity={1} />
+                    <stop offset="100%" stopColor="#3b82f6" stopOpacity={1} />
+                  </linearGradient>
+                </defs>
               </BarChart>
             </ResponsiveContainer>
           </div>
-        </div>
+        </motion.div>
 
-        <div className="bg-[#111c32] border border-white/10 rounded-xl p-5">
+        <motion.div variants={item} className="glass-card rounded-xl p-5">
           <h3 className="text-lg font-semibold text-white mb-4">Amenazas Activas</h3>
           <div className="space-y-3">
             {data.active_threats.map((threat: ThreatItem, index: number) => (
-              <div
+              <motion.div
                 key={index}
-                className="flex items-center gap-3 p-3 bg-[#0d1424] rounded-lg border border-white/5"
+                initial={{ opacity: 0, x: -10 }}
+                animate={{ opacity: 1, x: 0 }}
+                transition={{ delay: index * 0.1 }}
+                className="flex items-center gap-3 p-3 glass rounded-lg cursor-pointer hover:border-cyan-500/30 transition-all"
               >
                 <div className={`w-3 h-3 rounded-full ${severityColors[threat.severity]} ${
-                  threat.severity === 'critical' ? 'animate-pulse' : ''
+                  threat.severity === 'critical' ? 'animate-pulse-glow' : ''
                 }`} />
                 <div className="flex-1">
                   <p className="text-sm font-medium text-white">{threat.name}</p>
@@ -171,11 +204,11 @@ export default function Dashboard() {
                 <span className={`text-xs font-medium ${severityTextColors[threat.severity]}`}>
                   {threat.count}
                 </span>
-              </div>
+              </motion.div>
             ))}
           </div>
-        </div>
+        </motion.div>
       </div>
-    </div>
+    </motion.div>
   )
 }

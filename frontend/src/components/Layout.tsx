@@ -1,5 +1,6 @@
 import { Outlet, NavLink, useNavigate } from 'react-router-dom'
 import { useAuth } from '../context/AuthContext'
+import { motion } from 'framer-motion'
 import {
   LayoutDashboard,
   Shield,
@@ -41,13 +42,16 @@ export default function Layout() {
   }
 
   return (
-    <div className="flex h-screen bg-[#070b14]">
-      <aside className="w-64 bg-[#0d1424] border-r border-white/5 flex flex-col">
+    <div className="flex h-screen bg-[#070b14] grid-bg">
+      <aside className="w-64 glass-strong border-r border-white/5 flex flex-col">
         <div className="p-4 border-b border-white/5">
           <div className="flex items-center gap-3">
-            <div className="w-10 h-10 rounded-lg bg-gradient-to-br from-cyan-500 to-blue-500 flex items-center justify-center">
+            <motion.div
+              whileHover={{ scale: 1.05 }}
+              className="w-10 h-10 rounded-lg bg-gradient-to-br from-cyan-500 to-blue-500 flex items-center justify-center glow-cyan"
+            >
               <ShieldCheck className="w-6 h-6 text-white" />
-            </div>
+            </motion.div>
             <div>
               <h1 className="font-bold text-white">GuardIA GT</h1>
               <p className="text-xs text-gray-400">Ciberseguridad con IA</p>
@@ -62,9 +66,9 @@ export default function Layout() {
               to={item.to}
               end={item.to === '/'}
               className={({ isActive }) =>
-                `flex items-center gap-3 px-3 py-2.5 rounded-lg text-sm font-medium transition-colors ${
+                `flex items-center gap-3 px-3 py-2.5 rounded-lg text-sm font-medium transition-all ${
                   isActive
-                    ? 'bg-cyan-500/10 text-cyan-400'
+                    ? 'glass bg-cyan-500/10 text-cyan-400 glow-cyan'
                     : 'text-gray-400 hover:text-white hover:bg-white/5'
                 }`
               }
@@ -81,9 +85,9 @@ export default function Layout() {
               key={item.to}
               to={item.to}
               className={({ isActive }) =>
-                `flex items-center gap-3 px-3 py-2.5 rounded-lg text-sm font-medium transition-colors ${
+                `flex items-center gap-3 px-3 py-2.5 rounded-lg text-sm font-medium transition-all ${
                   isActive
-                    ? 'bg-cyan-500/10 text-cyan-400'
+                    ? 'glass bg-cyan-500/10 text-cyan-400 glow-cyan'
                     : 'text-gray-400 hover:text-white hover:bg-white/5'
                 }`
               }
@@ -106,13 +110,15 @@ export default function Layout() {
               <p className="text-xs text-gray-400 truncate">{user?.email}</p>
             </div>
           </div>
-          <button
+          <motion.button
+            whileHover={{ scale: 1.02 }}
+            whileTap={{ scale: 0.98 }}
             onClick={handleLogout}
             className="w-full flex items-center gap-2 px-3 py-2 rounded-lg text-sm text-gray-400 hover:text-white hover:bg-white/5 transition-colors"
           >
             <LogOut className="w-4 h-4" />
             Cerrar Sesión
-          </button>
+          </motion.button>
         </div>
       </aside>
 
