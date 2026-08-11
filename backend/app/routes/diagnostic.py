@@ -83,6 +83,15 @@ class DiagnosticResult(BaseModel):
 
 @router.post("/run", response_model=DiagnosticResult)
 def run_diagnostic(request: DiagnosticRequest, db: Session = Depends(get_db)):
+    try:
+        return _run_diagnostic_logic(request, db)
+    except Exception as e:
+        import traceback
+        traceback.print_exc()
+        raise HTTPException(status_code=500, detail=f"Error en el diagnóstico: {str(e)}")
+
+
+def _run_diagnostic_logic(request: DiagnosticRequest, db: Session = Depends(get_db)):
     # Limpiar datos anteriores de la misma organización si existe
     existing_assets = db.query(Asset).filter(
         Asset.name.like(f"%{request.organization_name}%")
@@ -179,13 +188,17 @@ def run_diagnostic(request: DiagnosticRequest, db: Session = Depends(get_db)):
                 })
     
     # Guardar vulnerabilidades en la base de datos
+    valid_severities = {"critical", "high", "medium", "low"}
     for vuln_data in all_vulns:
+        sev = vuln_data.get("severity", "low").lower()
+        if sev not in valid_severities:
+            sev = "low"
         vuln = Vulnerability(
             cve_id=vuln_data.get("cve_id", "UNKNOWN"),
             title=vuln_data.get("title", "Unknown vulnerability"),
             description=vuln_data.get("description", ""),
             cvss_score=vuln_data.get("cvss_score", 0.0),
-            severity=Severity(vuln_data.get("severity", "low")),
+            severity=Severity(sev),
             status=VulnStatus.OPEN,
             asset_id=new_assets[0].id if new_assets else 1,  # Asignar al primer activo
             affected_component=vuln_data.get("affected_component", "Unknown"),
