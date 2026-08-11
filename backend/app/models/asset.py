@@ -33,6 +33,9 @@ class Asset(Base):
 
     id = Column(Integer, primary_key=True, index=True)
     name = Column(String(255), nullable=False)
+    # Organización a la que pertenece el activo. Permite acotar un diagnóstico a su
+    # cliente en lugar de mezclar los datos de todos.
+    organization = Column(String(255), index=True, nullable=True)
     asset_type = Column(Enum(AssetType), nullable=False)
     ip_address = Column(String(45), nullable=True)
     operating_system = Column(String(100), nullable=True)

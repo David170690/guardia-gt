@@ -1,106 +1,142 @@
-from fastapi import APIRouter, Depends, HTTPException
-from sqlalchemy.orm import Session
+"""Gestión de usuarios. Todo el router exige rol de administrador, aplicado en `main.py`."""
+
 from typing import List
+
+from fastapi import APIRouter, Depends, HTTPException, Request
+from sqlalchemy.orm import Session
+
+from app.core import audit
 from app.core.database import get_db
-from app.core.security import get_password_hash, verify_password
+from app.core.deps import client_ip, require_admin
+from app.core.security import get_password_hash
 from app.models.user import User, UserRole
-from app.schemas.auth import UserCreate, UserResponse
+from app.schemas.auth import UserAdminCreate, UserAdminUpdate, UserResponse
 
 router = APIRouter()
 
 
-def require_admin(token: str = None, db: Session = None):
-    from app.routes.auth import oauth2_scheme
-    from app.core.security import decode_token
-    if not token:
-        raise HTTPException(status_code=401, detail="Not authenticated")
-    payload = decode_token(token)
-    if not payload:
-        raise HTTPException(status_code=401, detail="Invalid token")
-    user = db.query(User).filter(User.id == int(payload["sub"])).first()
-    if not user or user.role != UserRole.ADMIN:
-        raise HTTPException(status_code=403, detail="Admin access required")
-    return user
+def _parse_role(value: str | None, fallback: UserRole = UserRole.VIEWER) -> UserRole:
+    if not value:
+        return fallback
+    try:
+        return UserRole(value)
+    except ValueError:
+        raise HTTPException(
+            status_code=400,
+            detail=f"Rol inválido: {value}. Válidos: {', '.join(r.value for r in UserRole)}",
+        )
 
 
 @router.get("/", response_model=List[UserResponse])
-def list_users(
-    token: str = Depends(__import__('app.routes.auth', fromlist=['oauth2_scheme']).oauth2_scheme),
-    db: Session = Depends(get_db),
-):
-    require_admin(token, db)
+def list_users(db: Session = Depends(get_db)):
     return db.query(User).order_by(User.id).all()
 
 
-@router.post("/", response_model=UserResponse)
+@router.post("/", response_model=UserResponse, status_code=201)
 def create_user(
-    user: UserCreate,
-    token: str = Depends(__import__('app.routes.auth', fromlist=['oauth2_scheme']).oauth2_scheme),
+    payload: UserAdminCreate,
+    request: Request,
     db: Session = Depends(get_db),
+    admin: User = Depends(require_admin),
 ):
-    require_admin(token, db)
-    if db.query(User).filter(User.email == user.email).first():
-        raise HTTPException(status_code=400, detail="Email ya registrado")
-    db_user = User(
-        email=user.email,
-        full_name=user.full_name,
-        hashed_password=get_password_hash(user.password),
-        role=UserRole(user.role) if user.role else UserRole.VIEWER,
+    if db.query(User).filter(User.email == payload.email).first():
+        raise HTTPException(status_code=400, detail="El correo ya está registrado")
+
+    user = User(
+        email=payload.email,
+        full_name=payload.full_name,
+        hashed_password=get_password_hash(payload.password),
+        role=_parse_role(payload.role),
     )
-    db.add(db_user)
+    db.add(user)
     db.commit()
-    db.refresh(db_user)
-    return db_user
+    db.refresh(user)
+
+    audit.record(db, audit.USER_CREATED, user_id=admin.id, resource=user.email,
+                 details=f"rol {user.role.value}", ip_address=client_ip(request))
+    return user
 
 
 @router.put("/{user_id}", response_model=UserResponse)
 def update_user(
     user_id: int,
-    user: UserCreate,
-    token: str = Depends(__import__('app.routes.auth', fromlist=['oauth2_scheme']).oauth2_scheme),
+    payload: UserAdminUpdate,
+    request: Request,
     db: Session = Depends(get_db),
+    admin: User = Depends(require_admin),
 ):
-    require_admin(token, db)
-    db_user = db.query(User).filter(User.id == user_id).first()
-    if not db_user:
+    user = db.query(User).filter(User.id == user_id).first()
+    if not user:
         raise HTTPException(status_code=404, detail="Usuario no encontrado")
-    db_user.email = user.email
-    db_user.full_name = user.full_name
-    db_user.role = UserRole(user.role) if user.role else db_user.role
-    if user.password:
-        db_user.hashed_password = get_password_hash(user.password)
+
+    if payload.email != user.email:
+        if db.query(User).filter(User.email == payload.email, User.id != user_id).first():
+            raise HTTPException(status_code=400, detail="El correo ya está en uso")
+        user.email = payload.email
+
+    user.full_name = payload.full_name
+
+    new_role = _parse_role(payload.role, user.role)
+    # Un administrador no puede degradarse a sí mismo si es el último que queda.
+    if user.id == admin.id and new_role != UserRole.ADMIN:
+        remaining = db.query(User).filter(User.role == UserRole.ADMIN, User.id != user.id).count()
+        if remaining == 0:
+            raise HTTPException(status_code=400, detail="No puedes quitarte el último rol de administrador")
+    user.role = new_role
+
+    if payload.password:
+        user.hashed_password = get_password_hash(payload.password)
+
     db.commit()
-    db.refresh(db_user)
-    return db_user
+    db.refresh(user)
+
+    audit.record(db, audit.USER_UPDATED, user_id=admin.id, resource=user.email,
+                 details=f"rol {user.role.value}", ip_address=client_ip(request))
+    return user
 
 
 @router.delete("/{user_id}")
 def delete_user(
     user_id: int,
-    token: str = Depends(__import__('app.routes.auth', fromlist=['oauth2_scheme']).oauth2_scheme),
+    request: Request,
     db: Session = Depends(get_db),
+    admin: User = Depends(require_admin),
 ):
-    admin = require_admin(token, db)
-    db_user = db.query(User).filter(User.id == user_id).first()
-    if not db_user:
+    user = db.query(User).filter(User.id == user_id).first()
+    if not user:
         raise HTTPException(status_code=404, detail="Usuario no encontrado")
-    if db_user.id == admin.id:
+    if user.id == admin.id:
         raise HTTPException(status_code=400, detail="No puedes eliminar tu propia cuenta")
-    db.delete(db_user)
+
+    email = user.email
+    db.delete(user)
     db.commit()
+
+    audit.record(db, audit.USER_DELETED, user_id=admin.id, resource=email,
+                 ip_address=client_ip(request))
     return {"message": "Usuario eliminado"}
 
 
 @router.patch("/{user_id}/toggle-active")
 def toggle_user_active(
     user_id: int,
-    token: str = Depends(__import__('app.routes.auth', fromlist=['oauth2_scheme']).oauth2_scheme),
+    request: Request,
     db: Session = Depends(get_db),
+    admin: User = Depends(require_admin),
 ):
-    require_admin(token, db)
-    db_user = db.query(User).filter(User.id == user_id).first()
-    if not db_user:
+    user = db.query(User).filter(User.id == user_id).first()
+    if not user:
         raise HTTPException(status_code=404, detail="Usuario no encontrado")
-    db_user.is_active = not db_user.is_active
+    if user.id == admin.id:
+        raise HTTPException(status_code=400, detail="No puedes desactivar tu propia cuenta")
+
+    user.is_active = not user.is_active
     db.commit()
-    return {"message": f"Usuario {'activado' if db_user.is_active else 'desactivado'}", "is_active": db_user.is_active}
+
+    audit.record(db, audit.USER_TOGGLED, user_id=admin.id, resource=user.email,
+                 details="activado" if user.is_active else "desactivado",
+                 ip_address=client_ip(request))
+    return {
+        "message": f"Usuario {'activado' if user.is_active else 'desactivado'}",
+        "is_active": user.is_active,
+    }

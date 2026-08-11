@@ -1,9 +1,23 @@
+# Blueprint de Render.
+#
+# Cambios respecto a la versión anterior:
+#  - La base de datos se declara en el bloque `databases:`, que es donde Render la
+#    espera. Antes estaba como `type: postgres` dentro de `services`, donde el
+#    blueprint no la provisiona.
+#  - El frontend pasa a ser un sitio estático. Antes corría como servicio Node con
+#    `vite preview`, que consume una instancia web sin necesitarla.
+#  - VITE_API_URL lleva el esquema. `fromService/property: host` devuelve solo el
+#    dominio, y axios interpretaba eso como una ruta relativa.
+
 services:
   - type: web
     name: guardia-gt-backend
     runtime: python
-    buildCommand: pip install -r requirements.txt
+    rootDir: backend
+    plan: free
+    buildCommand: pip install --upgrade pip && pip install -r requirements.txt
     startCommand: uvicorn app.main:app --host 0.0.0.0 --port $PORT
+    healthCheckPath: /health
     envVars:
       - key: DATABASE_URL
         fromDatabase:
@@ -12,24 +26,43 @@ services:
       - key: SECRET_KEY
         generateValue: true
       - key: CORS_ORIGINS
-        value: '["http://localhost:5173","http://localhost:3000","https://guardia-gt-frontend.onrender.com","https://guardia-gt-backend.onrender.com"]'
-    rootDir: backend
-    healthCheckPath: /health
+        value: '["https://guardia-gt-frontend.onrender.com","http://localhost:5173"]'
+      # Deja SEED_TOKEN sin valor para mantener POST /seed deshabilitado.
+      # Para sembrar datos de demostración, define un valor secreto en el panel
+      # y envíalo en la cabecera X-Seed-Token.
+      - key: SEED_TOKEN
+        sync: false
+      # Activar solo en instalaciones dentro de la red del cliente.
+      - key: SCAN_ALLOW_PRIVATE_TARGETS
+        value: "false"
 
   - type: web
     name: guardia-gt-frontend
-    runtime: node
-    buildCommand: npm install && npm run build
-    startCommand: npm run preview -- --port $PORT
+    runtime: static
+    rootDir: frontend
+    buildCommand: npm ci && npm run build
+    staticPublishPath: ./dist
     envVars:
       - key: VITE_API_URL
-        fromService:
-          name: guardia-gt-backend
-          property: host
-    rootDir: frontend
+        value: https://guardia-gt-backend.onrender.com
+    routes:
+      # El enrutado del lado del cliente necesita que cualquier ruta sirva index.html.
+      - type: rewrite
+        source: /*
+        destination: /index.html
+    headers:
+      - path: /*
+        name: X-Content-Type-Options
+        value: nosniff
+      - path: /*
+        name: X-Frame-Options
+        value: DENY
+      - path: /*
+        name: Referrer-Policy
+        value: strict-origin-when-cross-origin
 
-  - type: postgres
-    name: guardia-gt-db
-    database: guardia_gt
+databases:
+  - name: guardia-gt-db
+    databaseName: guardia_gt
+    user: guardia
     plan: free
-    ipAllowList: []

@@ -5,6 +5,7 @@ from datetime import datetime
 
 class IncidentBase(BaseModel):
     title: str
+    organization: Optional[str] = None
     description: Optional[str] = None
     severity: str
     source_ip: Optional[str] = None
@@ -41,4 +42,6 @@ class IncidentStats(BaseModel):
     critical: int
     high: int
     resolved_today: int
-    mttr_minutes: int
+    # `None` cuando todavía no hay incidentes resueltos con marca de
+    # tiempo: antes se devolvía un 42 fijo escrito en el código.
+    mttr_minutes: Optional[int] = None

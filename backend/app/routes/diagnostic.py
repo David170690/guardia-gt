@@ -1,25 +1,40 @@
-from fastapi import APIRouter, Depends, HTTPException
-from sqlalchemy.orm import Session
-from pydantic import BaseModel
-from typing import List, Optional
-from datetime import datetime
-from app.core.database import get_db
-from app.models.asset import Asset, AssetType, AssetCriticality, AssetStatus
-from app.models.vulnerability import Vulnerability, Severity, VulnStatus
-from app.models.incident import Incident, IncidentSeverity, IncidentStatus
-from app.models.compliance import ComplianceControl, ComplianceStandard, ComplianceStatus
-from app.services.nmap_scanner import NmapScanner, scan_assets
-from app.services.openvas_scanner import OpenVASScanner, scan_assets_with_openvas
+"""Motor de diagnóstico.
 
+Escanea los activos de una organización y persiste los hallazgos acotados a ella.
+Todo lo que devuelve este endpoint procede de esta ejecución: nunca mezcla los datos
+de otros clientes ni rellena el informe con hallazgos inventados cuando el escaneo
+no encuentra nada.
+"""
+
+import logging
+from concurrent.futures import ThreadPoolExecutor
+from datetime import datetime, timezone
+from typing import Any, Dict, List, Optional
+
+from fastapi import APIRouter, Depends, HTTPException, Request
+from pydantic import BaseModel, Field
+from sqlalchemy.orm import Session
+
+from app.core import audit
+from app.core.config import settings
+from app.core.database import get_db
+from app.core.deps import client_ip, get_current_user
+from app.models.asset import Asset, AssetCriticality, AssetStatus, AssetType
+from app.models.compliance import ComplianceControl, ComplianceStatus
+from app.models.incident import Incident, IncidentSeverity, IncidentStatus
+from app.models.user import User
+from app.models.vulnerability import FindingType, Severity, Vulnerability, VulnStatus
+from app.services.nmap_scanner import NetworkScanner
+
+logger = logging.getLogger(__name__)
 router = APIRouter()
 
-# Initialize scanners
-nmap_scanner = NmapScanner()
-openvas_scanner = OpenVASScanner()
+SEVERITY_ORDER = {"critical": 0, "high": 1, "medium": 2, "low": 3, "info": 4}
+ACTIONABLE = {"critical", "high", "medium", "low"}
 
 
 class AssetInput(BaseModel):
-    name: str
+    name: str = Field(min_length=1, max_length=255)
     asset_type: str
     ip_address: Optional[str] = None
     operating_system: Optional[str] = None
@@ -27,9 +42,9 @@ class AssetInput(BaseModel):
 
 
 class DiagnosticRequest(BaseModel):
-    organization_name: str
+    organization_name: str = Field(min_length=1, max_length=255)
     ip_range: Optional[str] = None
-    assets: List[AssetInput]
+    assets: List[AssetInput] = Field(min_length=1)
     scan_type: str = "full"
 
 
@@ -42,6 +57,7 @@ class AssetDetail(BaseModel):
     criticality: str
     status: str
 
+
 class VulnDetail(BaseModel):
     id: int
     cve_id: str
@@ -49,9 +65,11 @@ class VulnDetail(BaseModel):
     cvss_score: float
     severity: str
     status: str
+    finding_type: Optional[str] = None
     affected_component: Optional[str]
     solution: Optional[str]
     ssl_info: Optional[dict] = None
+
 
 class IncidentDetail(BaseModel):
     id: int
@@ -61,6 +79,7 @@ class IncidentDetail(BaseModel):
     affected_asset: Optional[str]
     response_action: Optional[str]
 
+
 class ComplianceDetail(BaseModel):
     standard: str
     control_id: str
@@ -69,13 +88,19 @@ class ComplianceDetail(BaseModel):
     score: float
     findings: Optional[str]
 
+
 class DiagnosticResult(BaseModel):
+    organization: str
     assets_created: int
+    assets_scanned: int
+    assets_unreachable: int
     vulnerabilities_found: int
     incidents_created: int
     compliance_score: float
+    compliance_assessed: bool
     risk_level: str
     summary: str
+    notes: List[str]
     assets_detail: List[AssetDetail]
     vulns_detail: List[VulnDetail]
     incidents_detail: List[IncidentDetail]
@@ -83,227 +108,340 @@ class DiagnosticResult(BaseModel):
 
 
 @router.post("/run", response_model=DiagnosticResult)
-def run_diagnostic(request: DiagnosticRequest, db: Session = Depends(get_db)):
+def run_diagnostic(
+    request: DiagnosticRequest,
+    http_request: Request,
+    db: Session = Depends(get_db),
+    user: User = Depends(get_current_user),
+):
+    if len(request.assets) > settings.SCAN_MAX_ASSETS:
+        audit.record(
+            db, audit.DIAGNOSTIC_REJECTED, user_id=user.id,
+            resource=request.organization_name,
+            details=f"{len(request.assets)} activos solicitados",
+            ip_address=client_ip(http_request),
+        )
+        raise HTTPException(
+            status_code=400,
+            detail=f"Máximo {settings.SCAN_MAX_ASSETS} activos por diagnóstico; se recibieron {len(request.assets)}.",
+        )
+
     try:
-        return _run_diagnostic_logic(request, db)
-    except Exception as e:
-        import traceback
-        traceback.print_exc()
-        raise HTTPException(status_code=500, detail=f"Error en el diagnóstico: {str(e)}")
+        result = _execute(request, db, user)
+    except HTTPException:
+        raise
+    except Exception as exc:
+        db.rollback()
+        logger.exception("Fallo el diagnóstico de %s", request.organization_name)
+        raise HTTPException(status_code=500, detail=f"Error en el diagnóstico: {exc}") from exc
+
+    audit.record(
+        db, audit.DIAGNOSTIC_RUN, user_id=user.id,
+        resource=request.organization_name,
+        details=(
+            f"{result.assets_created} activos, {result.vulnerabilities_found} hallazgos, "
+            f"riesgo {result.risk_level}"
+        ),
+        ip_address=client_ip(http_request),
+    )
+    return result
 
 
-def _run_diagnostic_logic(request: DiagnosticRequest, db: Session = Depends(get_db)):
-    # Limpiar datos anteriores de la misma organización si existe
-    existing_assets = db.query(Asset).filter(
-        Asset.name.like(f"%{request.organization_name}%")
-    ).all()
-    for a in existing_assets:
-        db.query(Vulnerability).filter(Vulnerability.asset_id == a.id).delete()
-        db.delete(a)
-    db.commit()
+def _execute(request: DiagnosticRequest, db: Session, user: User) -> DiagnosticResult:
+    organization = request.organization_name.strip()
+    notes: List[str] = []
 
-    assets_created = 0
-    vulns_found = 0
-    incidents_created = 0
+    _purge_previous(db, organization)
+    assets = _create_assets(db, request, organization)
 
-    # Crear activos escaneados
-    new_assets = []
-    for asset_input in request.assets:
-        asset = Asset(
-            name=asset_input.name,
-            asset_type=AssetType(asset_input.asset_type),
-            ip_address=asset_input.ip_address,
-            operating_system=asset_input.operating_system,
-            criticality=AssetCriticality(asset_input.criticality),
-            status=AssetStatus.ONLINE,
-            cpu_usage=0.0,
-            ram_usage=0.0,
+    findings_by_asset = _scan(assets, request.scan_type)
+    vulnerabilities = _persist_findings(db, assets, findings_by_asset)
+    incidents = _create_incidents(db, organization, vulnerabilities, assets)
+
+    actionable = [v for v in vulnerabilities if v.severity.value in ACTIONABLE]
+    unreachable = sum(
+        1 for f in _flatten(findings_by_asset)
+        if f.get("finding_type") == FindingType.REACHABILITY.value
+    )
+    scanned = sum(1 for a in assets if a.ip_address)
+
+    if scanned == 0:
+        notes.append(
+            "Ningún activo tenía dirección IP o nombre de dominio, así que no se ejecutó ningún escaneo."
         )
-        db.add(asset)
-        db.flush()
-        new_assets.append(asset)
-        assets_created += 1
-
-    db.commit()
-
-    # Escanear vulnerabilidades reales usando Nmap y OpenVAS
-    all_vulns = []
-    
-    # Preparar datos de activos para escaneo
-    assets_for_scan = []
-    for asset in new_assets:
-        assets_for_scan.append({
-            "name": asset.name,
-            "ip_address": asset.ip_address,
-            "asset_type": asset.asset_type.value
-        })
-    
-    # Ejecutar escaneo Nmap (si hay IPs)
-    assets_with_ips = [a for a in assets_for_scan if a.get("ip_address")]
-    if assets_with_ips:
-        try:
-            # Escaneo rápido de Nmap para servicios
-            for asset in assets_with_ips:
-                ip = asset["ip_address"]
-                report = nmap_scanner.quick_scan(ip)
-                all_vulns.extend(report.vulnerabilities)
-        except Exception as e:
-            print(f"Nmap scan error: {e}")
-    
-    # Ejecutar escaneo OpenVAS (si hay IPs)
-    if assets_with_ips:
-        try:
-            openvas_vulns = scan_assets_with_openvas(assets_with_ips, "full")
-            all_vulns.extend(openvas_vulns)
-        except Exception as e:
-            print(f"OpenVAS scan error: {e}")
-    
-    # Si no se encontraron vulnerabilidades reales, usar plantillas básicas
-    if not all_vulns:
-        # Plantillas básicas de vulnerabilidades comunes
-        vuln_templates = [
-            {"cve": "CVE-2026-NEW-001", "title": "Servicio expuesto sin TLS", "cvss": 6.5, "severity": "medium", "solution": "Habilitar TLS en todos los servicios"},
-            {"cve": "CVE-2026-NEW-002", "title": "Versión desactualizada detectada", "cvss": 7.8, "severity": "high", "solution": "Actualizar a la última versión estable"},
-            {"cve": "CVE-2026-NEW-003", "title": "Puerto administrativo abierto", "cvss": 5.3, "severity": "medium", "solution": "Restringir acceso por IP"},
-            {"cve": "CVE-2026-NEW-004", "title": "Certificado SSL próximo a vencer", "cvss": 4.0, "severity": "low", "solution": "Renovar certificado"},
-            {"cve": "CVE-2026-NEW-005", "title": "Configuración por defecto detectada", "cvss": 8.1, "severity": "high", "solution": "Cambiar credenciales por defecto"},
-        ]
-        
-        import random
-        random.seed(int(datetime.now().timestamp()))
-        
-        for asset in new_assets:
-            num_vulns = random.randint(1, 3)
-            selected = random.sample(vuln_templates, min(num_vulns, len(vuln_templates)))
-            for v in selected:
-                all_vulns.append({
-                    "cve_id": f"{v['cve']}-{asset.id}",
-                    "title": v["title"],
-                    "description": f"Vulnerabilidad detectada en {asset.name} ({asset.ip_address})",
-                    "cvss_score": v["cvss"],
-                    "severity": v["severity"],
-                    "status": "open",
-                    "affected_component": asset.name,
-                    "solution": v["solution"],
-                    "source": "template"
-                })
-    
-    # Guardar vulnerabilidades en la base de datos
-    valid_severities = {"critical", "high", "medium", "low"}
-    for vuln_data in all_vulns:
-        sev = vuln_data.get("severity", "low").lower()
-        if sev not in valid_severities:
-            sev = "low"
-        vuln = Vulnerability(
-            cve_id=vuln_data.get("cve_id", "UNKNOWN"),
-            title=vuln_data.get("title", "Unknown vulnerability"),
-            description=vuln_data.get("description", ""),
-            cvss_score=vuln_data.get("cvss_score", 0.0),
-            severity=Severity(sev),
-            status=VulnStatus.OPEN,
-            asset_id=new_assets[0].id if new_assets else 1,  # Asignar al primer activo
-            affected_component=vuln_data.get("affected_component", "Unknown"),
-            solution=vuln_data.get("solution", "Apply security patches"),
+    elif not actionable:
+        notes.append(
+            "El escaneo se completó sin encontrar hallazgos accionables. "
+            "Un informe vacío es un resultado válido, no un fallo."
         )
-        db.add(vuln)
-        vulns_found += 1
-
-    db.commit()
-
-    # Crear incidentes leves por activos con vulnerabilidades altas/críticas
-    high_vulns = db.query(Vulnerability).filter(
-        Vulnerability.severity.in_([Severity.CRITICAL, Severity.HIGH]),
-        Vulnerability.asset_id.in_([a.id for a in new_assets])
-    ).all()
-
-    for v in high_vulns:
-        incident = Incident(
-            title=f"Vulnerabilidad detectada — {v.affected_component}",
-            description=f"{v.title} (CVSS {v.cvss_score})",
-            severity=IncidentSeverity.HIGH if v.severity == Severity.HIGH else IncidentSeverity.CRITICAL,
-            status=IncidentStatus.OPEN,
-            affected_asset=v.affected_component,
-            response_action="Requiere remediación",
+    if unreachable:
+        notes.append(
+            f"{unreachable} activo(s) no se pudieron alcanzar desde el servidor. "
+            "Para inventarios en red privada, instala GuardIA dentro de la red del cliente."
         )
-        db.add(incident)
-        incidents_created += 1
 
-    db.commit()
-
-    # Calcular score de cumplimiento simulado
-    total_controls = db.query(ComplianceControl).count()
-    compliant_controls = db.query(ComplianceControl).filter(
-        ComplianceControl.status.in_([ComplianceStatus.COMPLIANT, ComplianceStatus.PARTIAL])
-    ).count()
-    compliance_score = (compliant_controls / total_controls * 100) if total_controls > 0 else 0
-
-    # Determinar nivel de riesgo
-    critical_count = db.query(Vulnerability).filter(Vulnerability.severity == Severity.CRITICAL).count()
-    high_count = db.query(Vulnerability).filter(Vulnerability.severity == Severity.HIGH).count()
-
-    if critical_count >= 3:
-        risk_level = "crítico"
-    elif critical_count >= 1 or high_count >= 3:
-        risk_level = "alto"
-    elif high_count >= 1:
-        risk_level = "medio"
-    else:
-        risk_level = "bajo"
+    risk_level = _risk_level(actionable)
+    compliance_score, compliance_detail = _compliance_baseline(db)
+    if compliance_detail:
+        notes.append(
+            "Los controles de cumplimiento son el marco de referencia cargado en la plataforma; "
+            "todavía no constituyen una evaluación de esta organización."
+        )
 
     summary = (
-        f"Diagnóstico completado para {request.organization_name}. "
-        f"Se escanearon {assets_created} activos, se encontraron {vulns_found} vulnerabilidades "
-        f"y se generaron {incidents_created} incidentes. "
-        f"Nivel de riesgo: {risk_level.upper()}."
+        f"Diagnóstico de {organization}: se registraron {len(assets)} activos, "
+        f"se escanearon {scanned} y se identificaron {len(actionable)} hallazgos accionables "
+        f"de {len(vulnerabilities)} observaciones totales. Nivel de riesgo: {risk_level.upper()}."
     )
-
-    assets_detail = [
-        AssetDetail(id=a.id, name=a.name, asset_type=a.asset_type.value, ip_address=a.ip_address,
-                    operating_system=a.operating_system, criticality=a.criticality.value, status=a.status.value)
-        for a in new_assets
-    ]
-
-    vulns_in_db = db.query(Vulnerability).filter(
-        Vulnerability.asset_id.in_([a.id for a in new_assets])
-    ).all()
-    
-    ssl_info_map = {v.get("cve_id"): v.get("ssl_info") for v in all_vulns if v.get("ssl_info")}
-    
-    vulns_detail = [
-        VulnDetail(id=v.id, cve_id=v.cve_id, title=v.title, cvss_score=v.cvss_score,
-                   severity=v.severity.value, status=v.status.value,
-                   affected_component=v.affected_component, solution=v.solution,
-                   ssl_info=ssl_info_map.get(v.cve_id))
-        for v in vulns_in_db
-    ]
-
-    incidents_in_db = db.query(Incident).filter(
-        Incident.affected_asset.in_([a.name for a in new_assets])
-    ).all()
-    incidents_detail = [
-        IncidentDetail(id=inc.id, title=inc.title, severity=inc.severity.value,
-                       status=inc.status.value, affected_asset=inc.affected_asset,
-                       response_action=inc.response_action)
-        for inc in incidents_in_db
-    ]
-
-    controls_in_db = db.query(ComplianceControl).all()
-    compliance_detail = [
-        ComplianceDetail(standard=c.standard.value, control_id=c.control_id,
-                         control_name=c.control_name, status=c.status.value,
-                         score=c.score, findings=c.findings)
-        for c in controls_in_db
-    ]
 
     return DiagnosticResult(
-        assets_created=assets_created,
-        vulnerabilities_found=vulns_found,
-        incidents_created=incidents_created,
-        compliance_score=round(compliance_score, 1),
+        organization=organization,
+        assets_created=len(assets),
+        assets_scanned=scanned,
+        assets_unreachable=unreachable,
+        vulnerabilities_found=len(actionable),
+        incidents_created=len(incidents),
+        compliance_score=compliance_score,
+        compliance_assessed=False,
         risk_level=risk_level,
         summary=summary,
-        assets_detail=assets_detail,
-        vulns_detail=vulns_detail,
-        incidents_detail=incidents_detail,
+        notes=notes,
+        assets_detail=[
+            AssetDetail(
+                id=a.id, name=a.name, asset_type=a.asset_type.value,
+                ip_address=a.ip_address, operating_system=a.operating_system,
+                criticality=a.criticality.value, status=a.status.value,
+            )
+            for a in assets
+        ],
+        vulns_detail=_vuln_details(vulnerabilities, findings_by_asset),
+        incidents_detail=[
+            IncidentDetail(
+                id=i.id, title=i.title, severity=i.severity.value, status=i.status.value,
+                affected_asset=i.affected_asset, response_action=i.response_action,
+            )
+            for i in incidents
+        ],
         compliance_detail=compliance_detail,
     )
+
+
+# --------------------------------------------------------------------- pasos
+
+
+def _purge_previous(db: Session, organization: str) -> None:
+    """Elimina el diagnóstico anterior de esta organización, y solo de esta.
+
+    La versión previa comparaba el nombre de la organización con el *nombre del activo*,
+    que casi nunca coincidía, así que los datos se acumulaban indefinidamente.
+    """
+    previous = db.query(Asset).filter(Asset.organization == organization).all()
+    if previous:
+        asset_ids = [a.id for a in previous]
+        db.query(Vulnerability).filter(Vulnerability.asset_id.in_(asset_ids)).delete(
+            synchronize_session=False
+        )
+        for asset in previous:
+            db.delete(asset)
+    db.query(Incident).filter(Incident.organization == organization).delete(
+        synchronize_session=False
+    )
+    db.commit()
+
+
+def _create_assets(db: Session, request: DiagnosticRequest, organization: str) -> List[Asset]:
+    assets: List[Asset] = []
+    for item in request.assets:
+        try:
+            asset_type = AssetType(item.asset_type)
+        except ValueError:
+            raise HTTPException(status_code=400, detail=f"Tipo de activo inválido: {item.asset_type}")
+        try:
+            criticality = AssetCriticality(item.criticality)
+        except ValueError:
+            raise HTTPException(status_code=400, detail=f"Criticidad inválida: {item.criticality}")
+
+        asset = Asset(
+            name=item.name.strip(),
+            organization=organization,
+            asset_type=asset_type,
+            ip_address=(item.ip_address or "").strip() or None,
+            operating_system=(item.operating_system or "").strip() or None,
+            criticality=criticality,
+            status=AssetStatus.ONLINE,
+            last_scan=datetime.now(timezone.utc),
+        )
+        db.add(asset)
+        assets.append(asset)
+
+    db.commit()
+    for asset in assets:
+        db.refresh(asset)
+    return assets
+
+
+def _scan(assets: List[Asset], scan_type: str) -> Dict[int, List[Dict[str, Any]]]:
+    """Escanea los activos con IP. Devuelve los hallazgos indexados por `asset.id`."""
+    scanner = NetworkScanner()
+    targets = [a for a in assets if a.ip_address]
+    results: Dict[int, List[Dict[str, Any]]] = {a.id: [] for a in assets}
+    if not targets:
+        return results
+
+    def run(asset: Asset):
+        report = scanner.scan(asset.ip_address, scan_type)
+        return asset.id, scanner.build_findings(report.hosts[0]) if report.hosts else []
+
+    workers = min(settings.SCAN_HOST_CONCURRENCY, len(targets))
+    with ThreadPoolExecutor(max_workers=workers) as pool:
+        for asset_id, findings in pool.map(run, targets):
+            results[asset_id] = findings
+    return results
+
+
+def _flatten(findings_by_asset: Dict[int, List[Dict[str, Any]]]) -> List[Dict[str, Any]]:
+    return [f for group in findings_by_asset.values() for f in group]
+
+
+def _persist_findings(
+    db: Session, assets: List[Asset], findings_by_asset: Dict[int, List[Dict[str, Any]]]
+) -> List[Vulnerability]:
+    """Guarda los hallazgos con el activo correcto, deduplicando por componente.
+
+    Antes todo se colgaba de `new_assets[0].id`, así que el informe atribuía al primer
+    activo los hallazgos de todos los demás.
+    """
+    by_name = {a.id: a for a in assets}
+    stored: List[Vulnerability] = []
+    seen: set[tuple] = set()
+
+    for asset_id, findings in findings_by_asset.items():
+        asset = by_name.get(asset_id)
+        if not asset:
+            continue
+        for finding in findings:
+            component = finding.get("affected_component") or asset.name
+            key = (asset_id, finding.get("cve_id"), component)
+            if key in seen:
+                continue
+            seen.add(key)
+
+            severity_value = str(finding.get("severity", "info")).lower()
+            if severity_value not in SEVERITY_ORDER:
+                severity_value = "info"
+
+            vulnerability = Vulnerability(
+                cve_id=str(finding.get("cve_id", "UNKNOWN"))[:64],
+                title=str(finding.get("title", "Hallazgo sin título"))[:500],
+                description=finding.get("description", ""),
+                cvss_score=float(finding.get("cvss_score", 0.0)),
+                severity=Severity(severity_value),
+                status=VulnStatus.OPEN,
+                finding_type=finding.get("finding_type", FindingType.EXPOSURE.value),
+                asset_id=asset_id,
+                affected_component=component[:255],
+                solution=finding.get("solution", ""),
+            )
+            db.add(vulnerability)
+            stored.append(vulnerability)
+
+    db.commit()
+    for vulnerability in stored:
+        db.refresh(vulnerability)
+    return stored
+
+
+def _create_incidents(
+    db: Session, organization: str, vulnerabilities: List[Vulnerability], assets: List[Asset]
+) -> List[Incident]:
+    """Abre un incidente por cada hallazgo alto o crítico.
+
+    `affected_asset` guarda el nombre del activo (no "ip:puerto") para que el listado
+    del informe encuentre efectivamente los incidentes que acaba de crear.
+    """
+    asset_names = {a.id: a.name for a in assets}
+    incidents: List[Incident] = []
+
+    for vulnerability in vulnerabilities:
+        if vulnerability.severity not in (Severity.CRITICAL, Severity.HIGH):
+            continue
+        asset_name = asset_names.get(vulnerability.asset_id, vulnerability.affected_component)
+        incident = Incident(
+            title=f"Hallazgo {vulnerability.severity.value} — {asset_name}",
+            organization=organization,
+            description=f"{vulnerability.title} (CVSS {vulnerability.cvss_score}) en {vulnerability.affected_component}",
+            severity=(
+                IncidentSeverity.CRITICAL
+                if vulnerability.severity == Severity.CRITICAL
+                else IncidentSeverity.HIGH
+            ),
+            status=IncidentStatus.OPEN,
+            affected_asset=asset_name,
+            response_action=vulnerability.solution or "Requiere remediación",
+        )
+        db.add(incident)
+        incidents.append(incident)
+
+    db.commit()
+    for incident in incidents:
+        db.refresh(incident)
+    return incidents
+
+
+def _risk_level(actionable: List[Vulnerability]) -> str:
+    """Calcula el riesgo con los hallazgos de *esta* ejecución.
+
+    Antes se contaba toda la tabla, así que los datos de demostración y los de otros
+    clientes inflaban el riesgo de cualquier diagnóstico.
+    """
+    critical = sum(1 for v in actionable if v.severity == Severity.CRITICAL)
+    high = sum(1 for v in actionable if v.severity == Severity.HIGH)
+    medium = sum(1 for v in actionable if v.severity == Severity.MEDIUM)
+
+    if critical >= 3:
+        return "crítico"
+    if critical >= 1 or high >= 3:
+        return "alto"
+    if high >= 1 or medium >= 3:
+        return "medio"
+    return "bajo"
+
+
+def _compliance_baseline(db: Session) -> tuple[float, List[ComplianceDetail]]:
+    controls = db.query(ComplianceControl).all()
+    if not controls:
+        return 0.0, []
+    compliant = sum(
+        1 for c in controls
+        if c.status in (ComplianceStatus.COMPLIANT, ComplianceStatus.PARTIAL)
+    )
+    score = round(compliant / len(controls) * 100, 1)
+    detail = [
+        ComplianceDetail(
+            standard=c.standard.value, control_id=c.control_id, control_name=c.control_name,
+            status=c.status.value, score=c.score, findings=c.findings,
+        )
+        for c in controls
+    ]
+    return score, detail
+
+
+def _vuln_details(
+    vulnerabilities: List[Vulnerability], findings_by_asset: Dict[int, List[Dict[str, Any]]]
+) -> List[VulnDetail]:
+    ssl_by_key = {
+        (f.get("cve_id"), f.get("affected_component")): f.get("ssl_info")
+        for f in _flatten(findings_by_asset)
+        if f.get("ssl_info")
+    }
+    details = [
+        VulnDetail(
+            id=v.id, cve_id=v.cve_id, title=v.title, cvss_score=v.cvss_score,
+            severity=v.severity.value, status=v.status.value, finding_type=v.finding_type,
+            affected_component=v.affected_component, solution=v.solution,
+            ssl_info=ssl_by_key.get((v.cve_id, v.affected_component)),
+        )
+        for v in vulnerabilities
+    ]
+    details.sort(key=lambda d: (SEVERITY_ORDER.get(d.severity, 9), -d.cvss_score))
+    return details

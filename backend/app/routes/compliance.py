@@ -2,6 +2,8 @@ from fastapi import APIRouter, Depends, HTTPException
 from sqlalchemy.orm import Session
 from typing import List
 from app.core.database import get_db
+from app.core.deps import require_operator
+from app.models.user import User
 from app.models.compliance import ComplianceControl, ComplianceStandard, ComplianceStatus
 from app.schemas.compliance import ComplianceControlCreate, ComplianceControlUpdate, ComplianceControlResponse, ComplianceDashboard
 
@@ -51,7 +53,11 @@ def get_compliance_dashboard(db: Session = Depends(get_db)):
 
 
 @router.post("/", response_model=ComplianceControlResponse)
-def create_control(control: ComplianceControlCreate, db: Session = Depends(get_db)):
+def create_control(
+    control: ComplianceControlCreate,
+    db: Session = Depends(get_db),
+    _: User = Depends(require_operator),
+):
     db_control = ComplianceControl(**control.model_dump())
     db.add(db_control)
     db.commit()
@@ -60,10 +66,15 @@ def create_control(control: ComplianceControlCreate, db: Session = Depends(get_d
 
 
 @router.put("/{control_id}", response_model=ComplianceControlResponse)
-def update_control(control_id: int, control: ComplianceControlUpdate, db: Session = Depends(get_db)):
+def update_control(
+    control_id: int,
+    control: ComplianceControlUpdate,
+    db: Session = Depends(get_db),
+    _: User = Depends(require_operator),
+):
     db_control = db.query(ComplianceControl).filter(ComplianceControl.id == control_id).first()
     if not db_control:
-        raise HTTPException(status_code=404, detail="Control not found")
+        raise HTTPException(status_code=404, detail="Control no encontrado")
     update_data = control.model_dump(exclude_unset=True)
     for key, value in update_data.items():
         setattr(db_control, key, value)

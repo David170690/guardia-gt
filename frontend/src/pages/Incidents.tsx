@@ -72,7 +72,12 @@ export default function Incidents() {
           </div>
           <div className="bg-[#111c32] border border-white/10 rounded-xl p-4">
             <p className="text-sm text-gray-400">MTTR</p>
-            <p className="text-2xl font-bold text-cyan-400">{stats.mttr_minutes}min</p>
+            {/* `null` mientras no haya incidentes resueltos: antes se mostraba un 42 fijo. */}
+            {stats.mttr_minutes != null ? (
+              <p className="text-2xl font-bold text-cyan-400">{stats.mttr_minutes} min</p>
+            ) : (
+              <p className="text-2xl font-bold text-gray-500" title="Aún no hay incidentes resueltos con marca de tiempo">—</p>
+            )}
           </div>
           <div className="bg-[#111c32] border border-white/10 rounded-xl p-4">
             <p className="text-sm text-gray-400">Total</p>

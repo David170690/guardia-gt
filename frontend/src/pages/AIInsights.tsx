@@ -1,12 +1,20 @@
 import { Brain, Zap, Shield, AlertTriangle, TrendingUp, FileText } from 'lucide-react'
+import DataNote from '../components/DataNote'
 
 export default function AIInsights() {
   return (
     <div className="p-6 space-y-6">
       <div>
         <h1 className="text-2xl font-bold text-white">IA Predictiva</h1>
-        <p className="text-gray-400 mt-1">OpenAI + Llama — Predicción de ataques y generación de reportes</p>
+        <p className="text-gray-400 mt-1">Diseño de la funcionalidad de predicción y análisis asistido</p>
       </div>
+
+      <DataNote tone="demo" title="Maqueta de diseño — no hay un modelo detrás">
+        Todas las cifras de esta pantalla (probabilidades, precisión, tiempos de respuesta y ahorro
+        estimado) son valores de ejemplo escritos en la interfaz para ilustrar el producto. La
+        plataforma todavía no integra ningún modelo de lenguaje. El resto de módulos sí opera sobre
+        datos reales de la base de datos.
+      </DataNote>
 
       <div className="grid grid-cols-1 lg:grid-cols-2 gap-6">
         <div className="bg-gradient-to-br from-[#0f172a] to-[#1e293b] border border-white/10 rounded-xl p-6">

@@ -5,6 +5,7 @@ from datetime import datetime
 
 class AssetBase(BaseModel):
     name: str
+    organization: Optional[str] = None
     asset_type: str
     ip_address: Optional[str] = None
     operating_system: Optional[str] = None

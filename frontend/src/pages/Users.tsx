@@ -37,9 +37,16 @@ export default function UsersPage() {
     e.preventDefault()
     try {
       if (editingUser) {
-        await usersAPI.update(editingUser.id, form)
+        // La contraseña solo se envía si se escribió una nueva: un string vacío
+        // no pasa la validación de longitud mínima del backend.
+        const { password, ...rest } = form
+        await usersAPI.update(editingUser.id, password ? form : rest)
         toast.success('Usuario actualizado')
       } else {
+        if (form.password.length < 8) {
+          toast.error('La contraseña debe tener al menos 8 caracteres')
+          return
+        }
         await usersAPI.create(form)
         toast.success('Usuario creado')
       }
@@ -187,7 +194,7 @@ export default function UsersPage() {
               </div>
               <div>
                 <label className="block text-sm text-gray-300 mb-1">{editingUser ? 'Nueva contraseña (dejar vacío para no cambiar)' : 'Contraseña'}</label>
-                <input type="password" value={form.password} onChange={(e) => setForm({ ...form, password: e.target.value })} className="w-full px-4 py-2.5 bg-[#0d1424] border border-white/10 rounded-lg text-white focus:outline-none focus:ring-2 focus:ring-cyan-500/50" {...(!editingUser ? { required: true } : {})} />
+                <input type="password" value={form.password} onChange={(e) => setForm({ ...form, password: e.target.value })} minLength={8} placeholder={editingUser ? 'Dejar vacío para no cambiarla' : 'Mínimo 8 caracteres'} className="w-full px-4 py-2.5 bg-[#0d1424] border border-white/10 rounded-lg text-white placeholder-gray-500 focus:outline-none focus:ring-2 focus:ring-cyan-500/50" {...(!editingUser ? { required: true } : {})} />
               </div>
               <div>
                 <label className="block text-sm text-gray-300 mb-1">Rol</label>

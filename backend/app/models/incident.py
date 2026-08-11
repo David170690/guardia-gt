@@ -24,6 +24,7 @@ class Incident(Base):
 
     id = Column(Integer, primary_key=True, index=True)
     title = Column(String(500), nullable=False)
+    organization = Column(String(255), index=True, nullable=True)
     description = Column(Text, nullable=True)
     severity = Column(Enum(IncidentSeverity), nullable=False)
     status = Column(Enum(IncidentStatus), default=IncidentStatus.OPEN)

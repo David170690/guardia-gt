@@ -1,5 +1,7 @@
 # Dependencies
 node_modules/
+.venv/
+venv/
 __pycache__/
 *.pyc
 *.pyo
@@ -43,6 +45,7 @@ backend/*.pyc
 logs/
 
 # Coverage
+.pytest_cache/
 htmlcov/
 .coverage
 .coverage.*

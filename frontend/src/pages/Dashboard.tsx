@@ -1,14 +1,12 @@
 import { useState, useEffect } from 'react'
 import { dashboardAPI } from '../services/api'
-import { DashboardData, ThreatItem } from '../types'
+import { DashboardData, ThreatItem, RecentIncident } from '../types'
 import { motion } from 'framer-motion'
 import {
   Shield,
   AlertTriangle,
   Server,
   FileCheck,
-  TrendingUp,
-  TrendingDown,
   Activity,
 } from 'lucide-react'
 import {
@@ -21,8 +19,6 @@ import {
   ResponsiveContainer,
 } from 'recharts'
 import { DashboardSkeleton } from '../components/Skeleton'
-import { StaggerChildren, StaggerItem } from '../components/PageTransition'
-import Sparkline from '../components/Sparkline'
 
 const severityColors: Record<string, string> = {
   critical: 'bg-red-500',
@@ -38,12 +34,17 @@ const severityTextColors: Record<string, string> = {
   low: 'text-green-400',
 }
 
+const statusLabels: Record<string, string> = {
+  open: 'Abierto',
+  investigating: 'Investigando',
+  contained: 'Contenido',
+  resolved: 'Resuelto',
+  closed: 'Cerrado',
+}
+
 const container = {
   hidden: { opacity: 0 },
-  show: {
-    opacity: 1,
-    transition: { staggerChildren: 0.08 },
-  },
+  show: { opacity: 1, transition: { staggerChildren: 0.08 } },
 }
 
 const item = {
@@ -72,12 +73,16 @@ export default function Dashboard() {
   if (loading) return <DashboardSkeleton />
   if (!data) return null
 
+  // Sin `sparkData`: las miniaturas de tendencia eran arreglos escritos a mano
+  // junto a cifras reales, la combinación más engañosa posible.
   const kpiCards = [
-    { ...data.vulnerabilities, icon: Shield, color: 'from-red-500 to-orange-500', sparkData: [12, 15, 11, 14, 13, 12], sparkColor: '#ef4444' },
-    { ...data.compliance, icon: FileCheck, color: 'from-green-500 to-emerald-500', sparkData: [40, 42, 45, 48, 50, 50], sparkColor: '#22c55e' },
-    { ...data.assets, icon: Server, color: 'from-blue-500 to-cyan-500', sparkData: [4, 5, 5, 6, 6, 6], sparkColor: '#3b82f6' },
-    { ...data.incidents, icon: AlertTriangle, color: 'from-orange-500 to-yellow-500', sparkData: [5, 4, 3, 4, 3, 2], sparkColor: '#f97316' },
+    { ...data.vulnerabilities, icon: Shield, color: 'from-red-500 to-orange-500' },
+    { ...data.compliance, icon: FileCheck, color: 'from-green-500 to-emerald-500' },
+    { ...data.assets, icon: Server, color: 'from-blue-500 to-cyan-500' },
+    { ...data.incidents, icon: AlertTriangle, color: 'from-orange-500 to-yellow-500' },
   ]
+
+  const hasRiskData = data.risk_categories.some((c) => c.score > 0)
 
   return (
     <motion.div
@@ -86,11 +91,12 @@ export default function Dashboard() {
       animate="show"
       className="p-6 space-y-6 grid-bg"
     >
-      {/* Header */}
       <motion.div variants={item} className="flex items-center justify-between">
         <div>
           <h1 className="text-2xl font-bold text-white glow-text-cyan">Dashboard Ejecutivo</h1>
-          <p className="text-gray-400 mt-1">Monitoreo en tiempo real de seguridad</p>
+          <p className="text-gray-400 mt-1">
+            {data.organization ? `Organización: ${data.organization}` : 'Todas las organizaciones'}
+          </p>
         </div>
         <div className="flex items-center gap-2 glass px-3 py-2 rounded-lg">
           <div className="w-2 h-2 rounded-full bg-green-400 animate-pulse" />
@@ -99,7 +105,6 @@ export default function Dashboard() {
         </div>
       </motion.div>
 
-      {/* Risk Level Banner */}
       <motion.div
         variants={item}
         className="glass-strong rounded-xl p-4 flex items-center justify-between border-glow"
@@ -126,89 +131,119 @@ export default function Dashboard() {
         </div>
         <div className="text-right">
           <p className="text-sm text-gray-400">Score de Riesgo</p>
-          <p className="text-3xl font-bold text-white">{data.risk_score}/100</p>
+          <p className="text-3xl font-bold text-white tabular-nums">{data.risk_score}/100</p>
         </div>
       </motion.div>
 
-      {/* KPI Cards */}
       <div className="grid grid-cols-1 md:grid-cols-2 lg:grid-cols-4 gap-4">
         {kpiCards.map((kpi, index) => (
-          <motion.div
-            key={index}
-            variants={item}
-            className="glass-card rounded-xl p-4 cursor-pointer"
-          >
-            <div className="flex items-center justify-between mb-3">
-              <div className={`w-10 h-10 rounded-lg bg-gradient-to-br ${kpi.color} flex items-center justify-center`}>
-                <kpi.icon className="w-5 h-5 text-white" />
-              </div>
-              <Sparkline data={kpi.sparkData} color={kpi.sparkColor} width={60} height={24} />
+          <motion.div key={index} variants={item} className="glass-card rounded-xl p-4">
+            <div className={`w-10 h-10 rounded-lg bg-gradient-to-br ${kpi.color} flex items-center justify-center mb-3`}>
+              <kpi.icon className="w-5 h-5 text-white" />
             </div>
             <p className="text-2xl font-bold text-white tabular-nums">{kpi.value}</p>
             <p className="text-sm text-gray-400 mt-1">{kpi.label}</p>
-            {kpi.change && (
-              <p className="text-xs text-cyan-400 mt-2">{kpi.change}</p>
-            )}
+            {kpi.change && <p className="text-xs text-cyan-400 mt-2">{kpi.change}</p>}
           </motion.div>
         ))}
       </div>
 
-      {/* Charts Row */}
       <div className="grid grid-cols-1 lg:grid-cols-2 gap-6">
         <motion.div variants={item} className="glass-card rounded-xl p-5">
-          <h3 className="text-lg font-semibold text-white mb-4">Nivel de Riesgo por Categoría</h3>
+          <h3 className="text-lg font-semibold text-white mb-1">Riesgo por Categoría de Activo</h3>
+          <p className="text-xs text-gray-500 mb-4">Suma ponderada por severidad de los hallazgos abiertos</p>
           <div className="h-64">
-            <ResponsiveContainer width="100%" height="100%">
-              <BarChart data={data.risk_categories}>
-                <CartesianGrid strokeDasharray="3 3" stroke="rgba(255,255,255,0.05)" />
-                <XAxis dataKey="category" stroke="#64748b" fontSize={12} />
-                <YAxis stroke="#64748b" fontSize={12} />
-                <Tooltip
-                  contentStyle={{
-                    background: 'rgba(17, 28, 50, 0.9)',
-                    backdropFilter: 'blur(8px)',
-                    border: '1px solid rgba(255,255,255,0.1)',
-                    borderRadius: '8px',
-                  }}
-                />
-                <Bar dataKey="score" fill="url(#gradient)" radius={[4, 4, 0, 0]} />
-                <defs>
-                  <linearGradient id="gradient" x1="0" y1="0" x2="0" y2="1">
-                    <stop offset="0%" stopColor="#06b6d4" stopOpacity={1} />
-                    <stop offset="100%" stopColor="#3b82f6" stopOpacity={1} />
-                  </linearGradient>
-                </defs>
-              </BarChart>
-            </ResponsiveContainer>
+            {hasRiskData ? (
+              <ResponsiveContainer width="100%" height="100%">
+                <BarChart data={data.risk_categories}>
+                  <CartesianGrid strokeDasharray="3 3" stroke="rgba(255,255,255,0.05)" />
+                  <XAxis dataKey="category" stroke="#64748b" fontSize={12} />
+                  <YAxis stroke="#64748b" fontSize={12} allowDecimals={false} />
+                  <Tooltip
+                    contentStyle={{
+                      background: 'rgba(17, 28, 50, 0.9)',
+                      backdropFilter: 'blur(8px)',
+                      border: '1px solid rgba(255,255,255,0.1)',
+                      borderRadius: '8px',
+                    }}
+                  />
+                  <Bar dataKey="score" fill="url(#gradient)" radius={[4, 4, 0, 0]} />
+                  <defs>
+                    <linearGradient id="gradient" x1="0" y1="0" x2="0" y2="1">
+                      <stop offset="0%" stopColor="#06b6d4" stopOpacity={1} />
+                      <stop offset="100%" stopColor="#3b82f6" stopOpacity={1} />
+                    </linearGradient>
+                  </defs>
+                </BarChart>
+              </ResponsiveContainer>
+            ) : (
+              <div className="h-full flex items-center justify-center">
+                <p className="text-sm text-gray-500 text-center max-w-xs">
+                  Sin hallazgos abiertos. Ejecuta un diagnóstico para poblar esta vista.
+                </p>
+              </div>
+            )}
           </div>
         </motion.div>
 
         <motion.div variants={item} className="glass-card rounded-xl p-5">
-          <h3 className="text-lg font-semibold text-white mb-4">Amenazas Activas</h3>
+          <h3 className="text-lg font-semibold text-white mb-1">Hallazgos Más Frecuentes</h3>
+          <p className="text-xs text-gray-500 mb-4">Agrupados por tipo, ordenados por severidad</p>
           <div className="space-y-3">
-            {data.active_threats.map((threat: ThreatItem, index: number) => (
-              <motion.div
-                key={index}
-                initial={{ opacity: 0, x: -10 }}
-                animate={{ opacity: 1, x: 0 }}
-                transition={{ delay: index * 0.1 }}
-                className="flex items-center gap-3 p-3 glass rounded-lg cursor-pointer hover:border-cyan-500/30 transition-all"
-              >
-                <div className={`w-3 h-3 rounded-full ${severityColors[threat.severity]} ${
-                  threat.severity === 'critical' ? 'animate-pulse-glow' : ''
-                }`} />
-                <div className="flex-1">
-                  <p className="text-sm font-medium text-white">{threat.name}</p>
-                  <p className="text-xs text-gray-400">{threat.description}</p>
-                </div>
-                <span className={`text-xs font-medium ${severityTextColors[threat.severity]}`}>
-                  {threat.count}
-                </span>
-              </motion.div>
-            ))}
+            {data.active_threats.length > 0 ? (
+              data.active_threats.map((threat: ThreatItem, index: number) => (
+                <motion.div
+                  key={index}
+                  initial={{ opacity: 0, x: -10 }}
+                  animate={{ opacity: 1, x: 0 }}
+                  transition={{ delay: index * 0.1 }}
+                  className="flex items-center gap-3 p-3 glass rounded-lg"
+                >
+                  <div className={`w-3 h-3 rounded-full flex-shrink-0 ${severityColors[threat.severity]} ${
+                    threat.severity === 'critical' ? 'animate-pulse-glow' : ''
+                  }`} />
+                  <div className="flex-1 min-w-0">
+                    <p className="text-sm font-medium text-white truncate">{threat.name}</p>
+                    <p className="text-xs text-gray-400">{threat.description}</p>
+                  </div>
+                  <span className={`text-xs font-medium tabular-nums ${severityTextColors[threat.severity]}`}>
+                    {threat.count}
+                  </span>
+                </motion.div>
+              ))
+            ) : (
+              <p className="text-sm text-gray-500 py-8 text-center">
+                No hay hallazgos abiertos registrados.
+              </p>
+            )}
           </div>
         </motion.div>
       </div>
+
+      <motion.div variants={item} className="glass-card rounded-xl p-5">
+        <h3 className="text-lg font-semibold text-white mb-4">Incidentes Recientes</h3>
+        {data.recent_incidents.length > 0 ? (
+          <div className="space-y-2">
+            {data.recent_incidents.map((incident: RecentIncident) => (
+              <div key={incident.id} className="flex items-center gap-3 p-3 glass rounded-lg">
+                <div className={`w-2.5 h-2.5 rounded-full flex-shrink-0 ${severityColors[incident.severity] || 'bg-gray-500'}`} />
+                <div className="flex-1 min-w-0">
+                  <p className="text-sm font-medium text-white truncate">{incident.title}</p>
+                  <p className="text-xs text-gray-400">
+                    {incident.affected_asset || 'Sin activo asociado'}
+                    {incident.detected_at && ` · ${new Date(incident.detected_at).toLocaleString('es-GT')}`}
+                  </p>
+                </div>
+                <span className="text-xs text-gray-400 flex-shrink-0">
+                  {statusLabels[incident.status] || incident.status}
+                </span>
+              </div>
+            ))}
+          </div>
+        ) : (
+          <p className="text-sm text-gray-500 py-6 text-center">Sin incidentes registrados.</p>
+        )}
+      </motion.div>
     </motion.div>
   )
 }

@@ -3,6 +3,7 @@ import { settingsAPI } from '../services/api'
 import { Settings, User, Lock, Save, Server, Bell } from 'lucide-react'
 import toast from 'react-hot-toast'
 import { useAuth } from '../context/AuthContext'
+import DataNote from '../components/DataNote'
 
 export default function SettingsPage() {
   const { user } = useAuth()
@@ -120,48 +121,62 @@ export default function SettingsPage() {
       )}
 
       {tab === 'system' && system && (
-        <div className="bg-[#111c32] border border-white/5 rounded-xl p-6 max-w-lg">
-          <h2 className="text-lg font-semibold text-white mb-4">Configuración del Sistema</h2>
-          <div className="space-y-4">
+        <div className="bg-[#111c32] border border-white/5 rounded-xl p-6 max-w-2xl space-y-4">
+          <h2 className="text-lg font-semibold text-white">Configuración del Sistema</h2>
+
+          <DataNote tone="info">{system.note}</DataNote>
+
+          <div className="space-y-1">
+            {[
+              { label: 'Versión de la plataforma', value: system.app_version },
+              { label: 'Duración del token de acceso', value: `${system.access_token_expire_minutes} minutos` },
+              { label: 'Duración del token de refresco', value: `${system.refresh_token_expire_days} días` },
+              { label: 'Máximo de activos por diagnóstico', value: String(system.scan_max_assets) },
+              { label: 'Espera por puerto', value: `${system.scan_port_timeout_seconds} s` },
+              { label: 'Presupuesto de tiempo por activo', value: `${system.scan_host_budget_seconds} s` },
+            ].map((row) => (
+              <div key={row.label} className="flex items-center justify-between py-3 border-b border-white/5">
+                <p className="text-white font-medium">{row.label}</p>
+                <p className="text-sm text-gray-400 tabular-nums">{row.value}</p>
+              </div>
+            ))}
+
             <div className="flex items-center justify-between py-3 border-b border-white/5">
               <div>
-                <p className="text-white font-medium">Organización</p>
-                <p className="text-sm text-gray-400">{system.organization_name}</p>
+                <p className="text-white font-medium">Escaneo de redes privadas</p>
+                <p className="text-sm text-gray-400">
+                  Sondear direcciones internas desde el servidor
+                </p>
               </div>
-            </div>
-            <div className="flex items-center justify-between py-3 border-b border-white/5">
-              <div>
-                <p className="text-white font-medium">Email de alertas</p>
-                <p className="text-sm text-gray-400">{system.alert_email}</p>
-              </div>
-            </div>
-            <div className="flex items-center justify-between py-3 border-b border-white/5">
-              <div>
-                <p className="text-white font-medium">Escaneo automático</p>
-                <p className="text-sm text-gray-400">Cada {system.scan_interval_hours} horas</p>
-              </div>
-              <span className={`px-2.5 py-1 rounded-full text-xs font-medium ${system.auto_scan_enabled ? 'text-green-400 bg-green-500/10' : 'text-red-400 bg-red-500/10'}`}>
-                {system.auto_scan_enabled ? 'Activo' : 'Inactivo'}
+              <span className={`px-2.5 py-1 rounded-full text-xs font-medium ${system.scan_allow_private_targets ? 'text-yellow-400 bg-yellow-500/10' : 'text-green-400 bg-green-500/10'}`}>
+                {system.scan_allow_private_targets ? 'Permitido' : 'Bloqueado'}
               </span>
             </div>
+
             <div className="flex items-center justify-between py-3 border-b border-white/5">
               <div>
-                <p className="text-white font-medium">Retención de datos</p>
-                <p className="text-sm text-gray-400">{system.retention_days} días</p>
+                <p className="text-white font-medium">Endpoint de datos de demostración</p>
+                <p className="text-sm text-gray-400">Requiere la cabecera X-Seed-Token</p>
               </div>
-            </div>
-            <div className="flex items-center justify-between py-3">
-              <div>
-                <p className="text-white font-medium">MFA requerido</p>
-                <p className="text-sm text-gray-400">Autenticación de dos factores</p>
-              </div>
-              <span className={`px-2.5 py-1 rounded-full text-xs font-medium ${system.mfa_required ? 'text-green-400 bg-green-500/10' : 'text-yellow-400 bg-yellow-500/10'}`}>
-                {system.mfa_required ? 'Obligatorio' : 'Opcional'}
+              <span className={`px-2.5 py-1 rounded-full text-xs font-medium ${system.seed_endpoint_enabled ? 'text-yellow-400 bg-yellow-500/10' : 'text-green-400 bg-green-500/10'}`}>
+                {system.seed_endpoint_enabled ? 'Habilitado' : 'Deshabilitado'}
               </span>
+            </div>
+
+            <div className="py-3">
+              <p className="text-white font-medium mb-2">Orígenes permitidos (CORS)</p>
+              <div className="flex flex-wrap gap-2">
+                {system.cors_origins.map((origin: string) => (
+                  <span key={origin} className="text-xs font-mono text-gray-400 bg-[#0d1424] border border-white/5 rounded px-2 py-1">
+                    {origin}
+                  </span>
+                ))}
+              </div>
             </div>
           </div>
         </div>
       )}
+
     </div>
   )
 }
