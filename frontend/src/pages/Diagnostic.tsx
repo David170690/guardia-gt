@@ -1,7 +1,8 @@
 import { useState } from 'react'
 import { diagnosticAPI } from '../services/api'
-import { ScanSearch, Plus, Trash2, Server, Shield, AlertTriangle, FileCheck, CheckCircle2, ChevronDown, ChevronRight, ExternalLink } from 'lucide-react'
+import { ScanSearch, Plus, Trash2, Server, Shield, AlertTriangle, FileCheck, CheckCircle2, ChevronDown, ChevronRight, Info, ExternalLink } from 'lucide-react'
 import toast from 'react-hot-toast'
+import Modal from '../components/Modal'
 
 interface AssetInput {
   name: string
@@ -20,6 +21,95 @@ interface DiagnosticResult {
   summary: string
 }
 
+const VULN_DETAILS: Record<string, { what: string; risk: string; fix: string }> = {
+  'CVE-2023-44487': {
+    what: 'Vulnerabilidad HTTP/2 Rapid Reset que permite ataques de denegación de servicio (DoS) al enviar y cancelar rápidamente peticiones HTTP/2.',
+    risk: 'Un atacante puede saturar el servidor con menos de 100 peticiones por segundo, dejando el servicio fuera de línea para usuarios legítimos.',
+    fix: 'Actualizar el servidor web (Nginx, Apache, etc.) a la última versión que incluye el parche para esta vulnerabilidad.'
+  },
+  'CVE-2023-38408': {
+    what: 'Vulnerabilidad en OpenSSH que permite ejecución remota de código cuando el agente SSH está forwarding y se conecta a un servidor malicioso.',
+    risk: 'Un atacante remoto puede ejecutar código arbitrario en el cliente si este tiene agent forwarding habilitado y se conecta a un servidor comprometido.',
+    fix: 'Actualizar OpenSSH a versión 9.3p2 o superior. Deshabilitar agent forwarding si no es necesario.'
+  },
+  'CVE-2023-26460': {
+    what: 'Vulnerabilidad en servidores FTP que permite bypass de autenticación o acceso no autorizado.',
+    risk: 'Un atacante puede acceder a archivos del servidor FTP sin credenciales válidas, exponiendo información confidencial.',
+    fix: 'Actualizar el servidor FTP a la última versión. Considerar usar SFTP en su lugar.'
+  },
+  'CVE-2023-36884': {
+    what: 'Vulnerabilidad en servicios de escritorio remoto (RDP, VNC) que permite elevación de privilegios o ejecución remota de código.',
+    risk: 'Un atacante puede obtener control total del sistema comprometido, ejecutando código con privilegios de administrador.',
+    fix: 'Aplicar parches del vendor. Restringir acceso a estos puertos solo por VPN o whitelist de IPs.'
+  },
+  'CVE-2023-28856': {
+    what: 'Vulnerabilidad en Redis que permite ejecución de comandos arbitrarios cuando el servicio está expuesto sin autenticación.',
+    risk: 'Un atacante puede leer/escribir datos, ejecutar comandos del sistema y comprometer completamente el servidor.',
+    fix: 'Habilitar autenticación en Redis (requirepass). Restringir acceso por firewall. No exponer Redis a Internet.'
+  },
+  'ADMIN-EXPOSED': {
+    what: 'Puerto administrativo expuesto a la red sin restricción de acceso.',
+    risk: 'Servicios como RDP, VNC, FTP o bases de datos expuestos son targets comunes de fuerza bruta y ataques de día cero.',
+    fix: 'Configurar firewall para permitir acceso solo desde IPs autorizadas. Usar VPN para acceso remoto.'
+  },
+  'VERSION-DETECTED': {
+    what: 'El escáner detectó la versión exacta del servicio ejecutándose.',
+    risk: 'Los atacantes pueden buscar vulnerabilidades específicas para esa versión conocida.',
+    fix: 'Suprimir banners de versión donde sea posible. Mantener todos los servicios actualizados.'
+  },
+}
+
+const INCIDENT_DETAILS: Record<string, { what: string; impact: string; response: string }> = {
+  'high': {
+    what: 'Se detectó una vulnerabilidad de severidad ALTA en tu infraestructura que requiere atención inmediata.',
+    impact: 'Puede ser explotada para obtener acceso no autorizado, robo de datos o compromiso del sistema.',
+    response: '1. Identificar el activo afectado\n2. Evaluar si está siendo explotada\n3. Aplicar parche o mitigación temporal\n4. Monitorear actividad sospechosa\n5. Documentar el incidente'
+  },
+  'critical': {
+    what: 'Se detectó una vulnerabilidad CRÍTICA que representa un riesgo inminente para la organización.',
+    impact: 'Puede permitir compromiso total del sistema, robo de datos masivo o ransomware.',
+    response: '1. AISLAR el activo afectado de la red\n2. Activar equipo de respuesta a incidentes\n3. Aplicar parche de emergencia\n4. Realizar forense digital\n5. Notificar a la dirección y autoridades si aplica'
+  },
+  'medium': {
+    what: 'Vulnerabilidad de severidad MEDIA que podría ser explotada en combinación con otras debilidades.',
+    impact: 'Riesgo moderado de acceso parcial o fuga de información no crítica.',
+    response: '1. Programar remediación en próximo ciclo de parches\n2. Implementar controles compensatorios\n3. Monitorear intentos de explotación'
+  },
+  'low': {
+    what: 'Vulnerabilidad de severidad BAJA que representa un riesgo mínimo pero debe ser addressed.',
+    impact: 'Riesgo bajo, generalmente requiere combinación con otros factores para ser explotada.',
+    response: '1. Incluir en próximo mantenimiento programado\n2. Documentar para seguimiento\n3. Verificar que controles existentes mitigan el riesgo'
+  },
+}
+
+const COMPLIANCE_DETAILS: Record<string, { description: string; requirement: string; action: string }> = {
+  'ISO_27001': {
+    description: 'Estándar internacional para sistemas de gestión de seguridad de la información (SGSI).',
+    requirement: 'Establecer, implementar, mantener y mejorar continuamente un sistema de gestión de seguridad de la información.',
+    action: 'Implementar controles del Anexo A, realizar auditorías internas, capacitación continua del personal.'
+  },
+  'NIST_CSF': {
+    description: 'Marco de Ciberseguridad del Instituto Nacional de Estándares y Tecnología de EE.UU.',
+    requirement: 'Identificar, proteger, detectar, responder y recuperar de incidentes de ciberseguridad.',
+    action: 'Mapear activos, implementar controles preventivos, establecer monitoreo continuo, crear planes de respuesta.'
+  },
+  'CIS_V8': {
+    description: 'Controles de Seguridad del Centro de Seguridad de Internet, versión 8.',
+    requirement: 'Implementar 18 controles prioritarios de ciberseguridad en orden de impacto.',
+    action: 'Comenzar con controles básicos (inventario de activos, control de acceso), avanzar a controles avanzados.'
+  },
+  'OWASP_TOP10': {
+    description: 'Los 10 riesgos de seguridad más críticos en aplicaciones web según OWASP.',
+    requirement: 'Mitigar vulnerabilidades como Broken Access Control, Injection, XSS, entre otras.',
+    action: 'Realizar revisiones de código, pentesting, implementar WAF, capacitación en desarrollo seguro.'
+  },
+  'MITRE_ATTACK': {
+    description: 'Framework de tácticas y técnicas de amenazas cibernéticas basado en experiencia real.',
+    requirement: 'Comprender y detectar las tácticas que usan los atacantes en el ciclo de vida de un ataque.',
+    action: 'Mapear controles actuales al framework, identificar brechas, implementar detección por tácticas.'
+  },
+}
+
 export default function Diagnostic() {
   const [orgName, setOrgName] = useState('')
   const [ipRange, setIpRange] = useState('')
@@ -30,6 +120,15 @@ export default function Diagnostic() {
   const [result, setResult] = useState<any>(null)
   const [loading, setLoading] = useState(false)
   const [expandedCard, setExpandedCard] = useState<string | null>(null)
+  const [modalOpen, setModalOpen] = useState(false)
+  const [modalType, setModalType] = useState<'vuln' | 'incident' | 'compliance'>('vuln')
+  const [selectedItem, setSelectedItem] = useState<any>(null)
+
+  const openModal = (type: 'vuln' | 'incident' | 'compliance', item: any) => {
+    setModalType(type)
+    setSelectedItem(item)
+    setModalOpen(true)
+  }
 
   const addAsset = () => {
     setAssets([...assets, { name: '', asset_type: 'server', ip_address: '', operating_system: '', criticality: 'medium' }])
@@ -68,6 +167,31 @@ export default function Diagnostic() {
     }
   }
 
+  const getVulnInfo = (cveId: string, title: string) => {
+    const key = Object.keys(VULN_DETAILS).find(k => cveId.includes(k))
+    if (key) return VULN_DETAILS[key]
+    if (cveId.includes('ADMIN')) return VULN_DETAILS['ADMIN-EXPOSED']
+    if (cveId.includes('VERSION')) return VULN_DETAILS['VERSION-DETECTED']
+    return {
+      what: `Vulnerabilidad detectada: ${title}. Esta vulnerabilidad fue identificada por el escáner de seguridad y requiere revisión.`,
+      risk: `Puede ser explotada para comprometer la seguridad del activo afectado.`,
+      fix: `Revisar la documentación del CVE correspondiente y aplicar las recomendaciones del vendor.`
+    }
+  }
+
+  const getIncidentInfo = (severity: string) => {
+    return INCIDENT_DETAILS[severity] || INCIDENT_DETAILS['medium']
+  }
+
+  const getComplianceInfo = (standard: string) => {
+    const key = Object.keys(COMPLIANCE_DETAILS).find(k => standard.includes(k))
+    return key ? COMPLIANCE_DETAILS[key] : {
+      description: 'Estándar de cumplimiento de seguridad.',
+      requirement: 'Cumplir con los controles establecidos.',
+      action: 'Revisar y implementar los controles requeridos.'
+    }
+  }
+
   const assetTypes = [
     { value: 'server', label: 'Servidor' },
     { value: 'endpoint', label: 'Endpoint' },
@@ -97,6 +221,9 @@ export default function Diagnostic() {
     const sevColor: Record<string, string> = {
       critical: 'text-red-400', high: 'text-orange-400', medium: 'text-yellow-400', low: 'text-green-400',
     }
+    const sevBg: Record<string, string> = {
+      critical: 'bg-red-500', high: 'bg-orange-500', medium: 'bg-yellow-500', low: 'bg-green-500',
+    }
     const statusColor: Record<string, string> = {
       open: 'text-red-400 bg-red-500/10', in_progress: 'text-yellow-400 bg-yellow-500/10',
       investigating: 'text-orange-400 bg-orange-500/10', remediated: 'text-green-400 bg-green-500/10',
@@ -107,6 +234,13 @@ export default function Diagnostic() {
     }
     const compColor: Record<string, string> = {
       compliant: 'text-green-400', partial: 'text-yellow-400', non_compliant: 'text-red-400', not_applicable: 'text-gray-400',
+    }
+    const compBg: Record<string, string> = {
+      compliant: 'bg-green-500/10 border-green-500/20', partial: 'bg-yellow-500/10 border-yellow-500/20',
+      non_compliant: 'bg-red-500/10 border-red-500/20',
+    }
+    const compLabel: Record<string, string> = {
+      compliant: 'Cumple', partial: 'Parcial', non_compliant: 'No cumple', not_applicable: 'N/A',
     }
 
     return (
@@ -151,36 +285,13 @@ export default function Diagnostic() {
           </button>
         </div>
 
-        {/* DETALLE: ACTIVOS */}
-        {expandedCard === 'assets' && result.assets_detail && (
-          <div className="bg-[#111c32] border border-cyan-500/20 rounded-xl p-6 mb-6">
-            <h3 className="text-lg font-semibold text-white mb-4 flex items-center gap-2"><Server className="w-5 h-5 text-cyan-400" /> Activos Escaneados</h3>
-            <div className="grid grid-cols-1 md:grid-cols-2 lg:grid-cols-3 gap-3">
-              {result.assets_detail.map((a: any) => (
-                <div key={a.id} className="bg-[#0d1424] border border-white/5 rounded-lg p-4">
-                  <div className="flex items-center justify-between mb-2">
-                    <span className="text-white font-medium">{a.name}</span>
-                    <span className={`text-xs font-semibold uppercase ${critColor[a.criticality] || 'text-gray-400'}`}>{a.criticality}</span>
-                  </div>
-                  <div className="space-y-1 text-sm text-gray-400">
-                    <p>Tipo: <span className="text-gray-300">{a.asset_type}</span></p>
-                    <p>IP: <span className="text-gray-300">{a.ip_address || 'N/A'}</span></p>
-                    <p>SO: <span className="text-gray-300">{a.operating_system || 'N/A'}</span></p>
-                    <p>Estado: <span className="text-green-400">{a.status}</span></p>
-                  </div>
-                </div>
-              ))}
-            </div>
-          </div>
-        )}
-
         {/* DETALLE: VULNERABILIDADES */}
         {expandedCard === 'vulns' && result.vulns_detail && (
           <div className="bg-[#111c32] border border-red-500/20 rounded-xl p-6 mb-6">
             <h3 className="text-lg font-semibold text-white mb-4 flex items-center gap-2"><Shield className="w-5 h-5 text-red-400" /> Vulnerabilidades Detectadas</h3>
             <div className="space-y-2">
               {result.vulns_detail.map((v: any) => (
-                <div key={v.id} className="bg-[#0d1424] border border-white/5 rounded-lg p-4 flex items-center gap-4">
+                <button key={v.id} onClick={() => openModal('vuln', v)} className="w-full text-left bg-[#0d1424] border border-white/5 hover:border-red-500/30 rounded-lg p-4 flex items-center gap-4 transition-all cursor-pointer">
                   <div className="text-center min-w-[60px]">
                     <p className={`text-xl font-bold ${sevColor[v.severity] || 'text-gray-400'}`}>{v.cvss_score}</p>
                     <p className="text-xs text-gray-500">CVSS</p>
@@ -194,7 +305,8 @@ export default function Diagnostic() {
                     <span className={`inline-block px-2 py-1 rounded text-xs font-medium uppercase ${sevColor[v.severity]}`}>{v.severity}</span>
                     <p className={`text-xs mt-1 ${statusColor[v.status]?.split(' ')[0] || 'text-gray-400'}`}>{v.status}</p>
                   </div>
-                </div>
+                  <Info className="w-5 h-5 text-gray-500 flex-shrink-0" />
+                </button>
               ))}
             </div>
           </div>
@@ -206,8 +318,8 @@ export default function Diagnostic() {
             <h3 className="text-lg font-semibold text-white mb-4 flex items-center gap-2"><AlertTriangle className="w-5 h-5 text-orange-400" /> Incidentes Generados</h3>
             <div className="space-y-2">
               {result.incidents_detail.map((inc: any) => (
-                <div key={inc.id} className="bg-[#0d1424] border border-white/5 rounded-lg p-4 flex items-center gap-4">
-                  <div className={`w-3 h-3 rounded-full flex-shrink-0 ${inc.severity === 'critical' ? 'bg-red-500' : inc.severity === 'high' ? 'bg-orange-500' : inc.severity === 'medium' ? 'bg-yellow-500' : 'bg-green-500'}`} />
+                <button key={inc.id} onClick={() => openModal('incident', inc)} className="w-full text-left bg-[#0d1424] border border-white/5 hover:border-orange-500/30 rounded-lg p-4 flex items-center gap-4 transition-all cursor-pointer">
+                  <div className={`w-3 h-3 rounded-full flex-shrink-0 ${sevBg[inc.severity] || 'bg-gray-500'}`} />
                   <div className="flex-1">
                     <p className="text-white font-medium">{inc.title}</p>
                     <p className="text-sm text-gray-400">Activo: {inc.affected_asset || 'N/A'}</p>
@@ -217,7 +329,8 @@ export default function Diagnostic() {
                     <span className={`inline-block px-2 py-1 rounded text-xs font-medium uppercase ${sevColor[inc.severity] || 'text-gray-400'}`}>{inc.severity}</span>
                     <p className={`text-xs mt-1 px-2 py-0.5 rounded inline-block ${statusColor[inc.status] || 'text-gray-400 bg-gray-500/10'}`}>{inc.status}</p>
                   </div>
-                </div>
+                  <Info className="w-5 h-5 text-gray-500 flex-shrink-0" />
+                </button>
               ))}
             </div>
           </div>
@@ -229,7 +342,7 @@ export default function Diagnostic() {
             <h3 className="text-lg font-semibold text-white mb-4 flex items-center gap-2"><FileCheck className="w-5 h-5 text-green-400" /> Controles de Cumplimiento</h3>
             <div className="space-y-2">
               {result.compliance_detail.map((c: any, i: number) => (
-                <div key={i} className="bg-[#0d1424] border border-white/5 rounded-lg p-4 flex items-center gap-4">
+                <button key={i} onClick={() => openModal('compliance', c)} className="w-full text-left bg-[#0d1424] border border-white/5 hover:border-green-500/30 rounded-lg p-4 flex items-center gap-4 transition-all cursor-pointer">
                   <div className="text-center min-w-[50px]">
                     <p className="text-lg font-bold text-white">{c.score}%</p>
                   </div>
@@ -238,8 +351,9 @@ export default function Diagnostic() {
                     <p className="text-sm text-gray-400">{c.standard.toUpperCase()} — {c.control_id}</p>
                     {c.findings && <p className="text-xs text-yellow-400 mt-1">Hallazgo: {c.findings}</p>}
                   </div>
-                  <span className={`text-xs font-semibold uppercase ${compColor[c.status] || 'text-gray-400'}`}>{c.status}</span>
-                </div>
+                  <span className={`text-xs font-semibold uppercase ${compColor[c.status] || 'text-gray-400'}`}>{compLabel[c.status] || c.status}</span>
+                  <Info className="w-5 h-5 text-gray-500 flex-shrink-0" />
+                </button>
               ))}
             </div>
           </div>
@@ -248,6 +362,152 @@ export default function Diagnostic() {
         <button onClick={() => { setResult(null); setOrgName(''); setAssets([{ name: '', asset_type: 'server', ip_address: '', operating_system: '', criticality: 'medium' }]) }} className="px-6 py-2.5 bg-gradient-to-r from-cyan-500 to-blue-500 text-white font-medium rounded-lg hover:from-cyan-600 hover:to-blue-600 transition-all">
           Nuevo Diagnóstico
         </button>
+
+        {/* MODAL: VULNERABILIDAD */}
+        <Modal isOpen={modalOpen && modalType === 'vuln'} onClose={() => setModalOpen(false)} title="Detalle de Vulnerabilidad">
+          {selectedItem && (() => {
+            const info = getVulnInfo(selectedItem.cve_id, selectedItem.title)
+            return (
+              <div className="space-y-6">
+                <div className="flex items-start gap-4">
+                  <div className={`px-3 py-2 rounded-lg text-center ${selectedItem.severity === 'critical' ? 'bg-red-500/20 border border-red-500/30' : selectedItem.severity === 'high' ? 'bg-orange-500/20 border border-orange-500/30' : selectedItem.severity === 'medium' ? 'bg-yellow-500/20 border border-yellow-500/30' : 'bg-green-500/20 border border-green-500/30'}`}>
+                    <p className={`text-2xl font-bold ${sevColor[selectedItem.severity]}`}>{selectedItem.cvss_score}</p>
+                    <p className="text-xs text-gray-400">CVSS</p>
+                  </div>
+                  <div>
+                    <h3 className="text-lg font-semibold text-white">{selectedItem.title}</h3>
+                    <p className="text-sm text-gray-400 mt-1">{selectedItem.cve_id}</p>
+                    <p className="text-sm text-gray-400">Activo: {selectedItem.affected_component}</p>
+                  </div>
+                </div>
+
+                <div className="bg-[#0d1424] border border-white/5 rounded-lg p-4">
+                  <h4 className="text-sm font-semibold text-cyan-400 mb-2 flex items-center gap-2">
+                    <Shield className="w-4 h-4" /> ¿Qué es esta vulnerabilidad?
+                  </h4>
+                  <p className="text-sm text-gray-300">{info.what}</p>
+                </div>
+
+                <div className="bg-[#0d1424] border border-white/5 rounded-lg p-4">
+                  <h4 className="text-sm font-semibold text-orange-400 mb-2 flex items-center gap-2">
+                    <AlertTriangle className="w-4 h-4" /> ¿Cuál es el riesgo?
+                  </h4>
+                  <p className="text-sm text-gray-300">{info.risk}</p>
+                </div>
+
+                <div className="bg-[#0d1424] border border-white/5 rounded-lg p-4">
+                  <h4 className="text-sm font-semibold text-green-400 mb-2 flex items-center gap-2">
+                    <CheckCircle2 className="w-4 h-4" /> ¿Cómo solucionarlo?
+                  </h4>
+                  <p className="text-sm text-gray-300">{info.fix}</p>
+                </div>
+
+                <div className="flex items-center justify-between pt-2">
+                  <span className={`inline-block px-3 py-1 rounded text-sm font-medium uppercase ${sevColor[selectedItem.severity]}`}>Severidad: {selectedItem.severity}</span>
+                  <a href={`https://nvd.nist.gov/vuln/detail/${selectedItem.cve_id}`} target="_blank" rel="noopener noreferrer" className="flex items-center gap-1 text-sm text-cyan-400 hover:text-cyan-300">
+                    <ExternalLink className="w-4 h-4" /> Ver en NVD
+                  </a>
+                </div>
+              </div>
+            )
+          })()}
+        </Modal>
+
+        {/* MODAL: INCIDENTE */}
+        <Modal isOpen={modalOpen && modalType === 'incident'} onClose={() => setModalOpen(false)} title="Detalle de Incidente">
+          {selectedItem && (() => {
+            const info = getIncidentInfo(selectedItem.severity)
+            return (
+              <div className="space-y-6">
+                <div className="flex items-start gap-4">
+                  <div className={`w-4 h-4 rounded-full flex-shrink-0 mt-1 ${sevBg[selectedItem.severity] || 'bg-gray-500'}`} />
+                  <div>
+                    <h3 className="text-lg font-semibold text-white">{selectedItem.title}</h3>
+                    <p className="text-sm text-gray-400 mt-1">Activo: {selectedItem.affected_asset || 'N/A'}</p>
+                  </div>
+                </div>
+
+                <div className="bg-[#0d1424] border border-white/5 rounded-lg p-4">
+                  <h4 className="text-sm font-semibold text-cyan-400 mb-2 flex items-center gap-2">
+                    <Info className="w-4 h-4" /> ¿Qué está pasando?
+                  </h4>
+                  <p className="text-sm text-gray-300">{info.what}</p>
+                </div>
+
+                <div className="bg-[#0d1424] border border-white/5 rounded-lg p-4">
+                  <h4 className="text-sm font-semibold text-orange-400 mb-2 flex items-center gap-2">
+                    <AlertTriangle className="w-4 h-4" /> ¿Cuál es el impacto?
+                  </h4>
+                  <p className="text-sm text-gray-300">{info.impact}</p>
+                </div>
+
+                <div className="bg-[#0d1424] border border-white/5 rounded-lg p-4">
+                  <h4 className="text-sm font-semibold text-green-400 mb-2 flex items-center gap-2">
+                    <CheckCircle2 className="w-4 h-4" /> ¿Qué hacer? (Plan de Respuesta)
+                  </h4>
+                  <div className="text-sm text-gray-300 whitespace-pre-line">{info.response}</div>
+                </div>
+
+                <div className="flex items-center justify-between pt-2">
+                  <div className="flex gap-2">
+                    <span className={`inline-block px-3 py-1 rounded text-sm font-medium uppercase ${sevColor[selectedItem.severity]}`}>{selectedItem.severity}</span>
+                    <span className={`inline-block px-3 py-1 rounded text-sm font-medium ${statusColor[selectedItem.status] || 'text-gray-400 bg-gray-500/10'}`}>{selectedItem.status}</span>
+                  </div>
+                </div>
+              </div>
+            )
+          })()}
+        </Modal>
+
+        {/* MODAL: CUMPLIMIENTO */}
+        <Modal isOpen={modalOpen && modalType === 'compliance'} onClose={() => setModalOpen(false)} title="Detalle de Cumplimiento">
+          {selectedItem && (() => {
+            const info = getComplianceInfo(selectedItem.standard)
+            return (
+              <div className="space-y-6">
+                <div className="flex items-start gap-4">
+                  <div className="text-center">
+                    <p className="text-3xl font-bold text-white">{selectedItem.score}%</p>
+                    <p className="text-xs text-gray-400 mt-1">Cumplimiento</p>
+                  </div>
+                  <div>
+                    <h3 className="text-lg font-semibold text-white">{selectedItem.control_name}</h3>
+                    <p className="text-sm text-gray-400 mt-1">{selectedItem.standard.toUpperCase()} — {selectedItem.control_id}</p>
+                    <span className={`inline-block px-2 py-1 rounded text-xs font-medium uppercase mt-2 ${compColor[selectedItem.status] || 'text-gray-400'}`}>{compLabel[selectedItem.status] || selectedItem.status}</span>
+                  </div>
+                </div>
+
+                <div className="bg-[#0d1424] border border-white/5 rounded-lg p-4">
+                  <h4 className="text-sm font-semibold text-cyan-400 mb-2 flex items-center gap-2">
+                    <Info className="w-4 h-4" /> ¿Qué es este estándar?
+                  </h4>
+                  <p className="text-sm text-gray-300">{info.description}</p>
+                </div>
+
+                <div className="bg-[#0d1424] border border-white/5 rounded-lg p-4">
+                  <h4 className="text-sm font-semibold text-yellow-400 mb-2 flex items-center gap-2">
+                    <FileCheck className="w-4 h-4" /> ¿Qué requiere?
+                  </h4>
+                  <p className="text-sm text-gray-300">{info.requirement}</p>
+                </div>
+
+                <div className="bg-[#0d1424] border border-white/5 rounded-lg p-4">
+                  <h4 className="text-sm font-semibold text-green-400 mb-2 flex items-center gap-2">
+                    <CheckCircle2 className="w-4 h-4" /> ¿Qué acciones tomar?
+                  </h4>
+                  <p className="text-sm text-gray-300">{info.action}</p>
+                </div>
+
+                {selectedItem.findings && (
+                  <div className="bg-yellow-500/10 border border-yellow-500/20 rounded-lg p-4">
+                    <h4 className="text-sm font-semibold text-yellow-400 mb-2">Hallazgo Detectado</h4>
+                    <p className="text-sm text-gray-300">{selectedItem.findings}</p>
+                  </div>
+                )}
+              </div>
+            )
+          })()}
+        </Modal>
       </div>
     )
   }
