@@ -358,7 +358,7 @@ export default function Diagnostic() {
                   </div>
                   <div className="flex-1">
                     <p className="text-white font-medium">{c.control_name}</p>
-                    <p className="text-sm text-gray-400">{c.standard.toUpperCase()} — {c.control_id}</p>
+                    <p className="text-sm text-gray-400">{(c.standard || '').toUpperCase()} — {c.control_id}</p>
                     {c.findings && <p className="text-xs text-yellow-400 mt-1">Hallazgo: {c.findings}</p>}
                   </div>
                   <span className={`text-xs font-semibold uppercase ${compColor[c.status] || 'text-gray-400'}`}>{compLabel[c.status] || c.status}</span>
@@ -482,7 +482,7 @@ export default function Diagnostic() {
                   </div>
                   <div>
                     <h3 className="text-lg font-semibold text-white">{selectedItem.control_name}</h3>
-                    <p className="text-sm text-gray-400 mt-1">{selectedItem.standard.toUpperCase()} — {selectedItem.control_id}</p>
+                    <p className="text-sm text-gray-400 mt-1">{(selectedItem.standard || '').toUpperCase()} — {selectedItem.control_id}</p>
                     <span className={`inline-block px-2 py-1 rounded text-xs font-medium uppercase mt-2 ${compColor[selectedItem.status] || 'text-gray-400'}`}>{compLabel[selectedItem.status] || selectedItem.status}</span>
                   </div>
                 </div>
