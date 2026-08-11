@@ -51,6 +51,7 @@ class VulnDetail(BaseModel):
     status: str
     affected_component: Optional[str]
     solution: Optional[str]
+    ssl_info: Optional[dict] = None
 
 class IncidentDetail(BaseModel):
     id: int
@@ -265,10 +266,14 @@ def _run_diagnostic_logic(request: DiagnosticRequest, db: Session = Depends(get_
     vulns_in_db = db.query(Vulnerability).filter(
         Vulnerability.asset_id.in_([a.id for a in new_assets])
     ).all()
+    
+    ssl_info_map = {v.get("cve_id"): v.get("ssl_info") for v in all_vulns if v.get("ssl_info")}
+    
     vulns_detail = [
         VulnDetail(id=v.id, cve_id=v.cve_id, title=v.title, cvss_score=v.cvss_score,
                    severity=v.severity.value, status=v.status.value,
-                   affected_component=v.affected_component, solution=v.solution)
+                   affected_component=v.affected_component, solution=v.solution,
+                   ssl_info=ssl_info_map.get(v.cve_id))
         for v in vulns_in_db
     ]
 

@@ -5,6 +5,7 @@ Fallback when nmap binary is not available on the system.
 """
 
 import socket
+import ssl
 import time
 from typing import Dict, List, Optional, Any
 from dataclasses import dataclass
@@ -111,6 +112,60 @@ class NmapScanner:
 
         return None
 
+    def _check_ssl_cert(self, ip: str, port: int = 443) -> Optional[Dict[str, Any]]:
+        try:
+            ctx = ssl.create_default_context()
+            ctx.check_hostname = False
+            ctx.verify_mode = ssl.CERT_NONE
+
+            sock = socket.socket(socket.AF_INET, socket.SOCK_STREAM)
+            sock.settimeout(self.timeout)
+            sock.connect((ip, port))
+
+            ssl_sock = ctx.wrap_socket(sock, server_hostname=ip)
+            cert = ssl_sock.getpeercert(binary_form=True)
+
+            import x509
+            from cryptography import x509 as x509_lib
+            from cryptography.hazmat.backends import default_backend
+            cert_obj = x509_lib.load_der_x509_certificate(cert, default_backend())
+
+            not_after = cert_obj.not_valid_after_utc
+            not_before = cert_obj.not_valid_before_utc
+            now = datetime.now(not_after.tzinfo)
+            days_left = (not_after - now).days
+
+            subject = cert_obj.subject
+            cn = ""
+            for attr in subject:
+                if attr.oid == x509_lib.oid.NameOID.COMMON_NAME:
+                    cn = attr.value
+
+            ssl_sock.close()
+            sock.close()
+
+            return {
+                "valid": True,
+                "cn": cn,
+                "issuer": str(cert_obj.issuer.rfc4514_string()),
+                "not_before": not_before.isoformat(),
+                "not_after": not_after.isoformat(),
+                "days_left": days_left,
+                "expired": days_left < 0,
+                "expiring_soon": 0 <= days_left <= 30,
+            }
+        except Exception as e:
+            logger.debug(f"SSL check error {ip}:{port}: {e}")
+            try:
+                ssl_sock.close()
+            except Exception:
+                pass
+            try:
+                sock.close()
+            except Exception:
+                pass
+            return None
+
     def _generate_vulnerabilities(self, hosts: List[NmapResult]) -> List[Dict[str, Any]]:
         vulns = []
 
@@ -118,6 +173,37 @@ class NmapScanner:
             for port_info in host.ports:
                 service = port_info.get("service", "")
                 port = port_info.get("port", 0)
+
+                if service in ["https", "http"] and port in [443, 8443]:
+                    ssl_info = self._check_ssl_cert(host.ip, port)
+                    if ssl_info:
+                        if ssl_info.get("expired"):
+                            vulns.append({
+                                "cve_id": f"SSL-EXPIRED-{port}",
+                                "title": f"Certificado SSL expirado en {host.ip}:{port}",
+                                "description": f"El certificado SSL para {ssl_info.get('cn', host.ip)} expiró el {ssl_info.get('not_after', 'N/A')}. Dominio: {ssl_info.get('cn', 'N/A')}. Emisor: {ssl_info.get('issuer', 'N/A')}",
+                                "cvss_score": 7.5,
+                                "severity": "high",
+                                "status": "open",
+                                "affected_component": f"{host.ip}:{port}",
+                                "solution": f"Renovar el certificado SSL para {ssl_info.get('cn', host.ip)} inmediatamente",
+                                "source": "ssl_check",
+                                "ssl_info": ssl_info,
+                            })
+                        elif ssl_info.get("expiring_soon"):
+                            vulns.append({
+                                "cve_id": f"SSL-EXPIRING-{port}",
+                                "title": f"Certificado SSL vence en {ssl_info.get('days_left', 0)} días",
+                                "description": f"El certificado SSL para {ssl_info.get('cn', host.ip)} vence el {ssl_info.get('not_after', 'N/A')} ({ssl_info.get('days_left', 0)} días restantes). Dominio: {ssl_info.get('cn', 'N/A')}. Emisor: {ssl_info.get('issuer', 'N/A')}",
+                                "cvss_score": 4.0,
+                                "severity": "medium",
+                                "status": "open",
+                                "affected_component": f"{host.ip}:{port}",
+                                "solution": f"Renovar el certificado SSL para {ssl_info.get('cn', host.ip)} antes de que expire",
+                                "source": "ssl_check",
+                                "ssl_info": ssl_info,
+                            })
+                    continue
 
                 if service in VULNERABLE_SERVICES:
                     vuln_info = VULNERABLE_SERVICES[service]

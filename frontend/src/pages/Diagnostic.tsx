@@ -173,6 +173,16 @@ export default function Diagnostic() {
       risk: `Puede ser explotada para comprometer la seguridad del activo afectado.`,
       fix: `Revisar la documentación del CVE correspondiente y aplicar las recomendaciones del vendor.`
     }
+    if (cveId.includes('SSL-EXPIRED')) return {
+      what: 'El certificado SSL/TLS de este dominio ya expiró. Los navegadores muestran advertencias de seguridad a los usuarios y las conexiones no están protegidas.',
+      risk: 'Los usuarios no pueden acceder de forma segura. Los atacantes pueden interceptar tráfico (man-in-the-middle) y robar credenciales, datos sensibles o inyectar malware.',
+      fix: 'Renovar el certificado SSL inmediatamente. Si usa Let\'s Encrypt, ejecute: certbot renew. Si es un certificado comercial, contacte a su proveedor.'
+    }
+    if (cveId.includes('SSL-EXPIRING')) return {
+      what: 'El certificado SSL/TLS está próximo a vencer. Si no se renueva antes de la fecha de expiración, el sitio mostrará advertencias de seguridad.',
+      risk: 'Cuando expire, los navegadores bloquearán o advierten a los usuarios, causando pérdida de tráfico y confianza. Las conexiones quedan sin cifrar.',
+      fix: 'Programe la renovación del certificado antes de que expire. Verifique que el dominio en el certificado coincida con el dominio del sitio.'
+    }
     const key = Object.keys(VULN_DETAILS).find(k => cveId.includes(k))
     if (key) return VULN_DETAILS[key]
     if (cveId.includes('ADMIN')) return VULN_DETAILS['ADMIN-EXPOSED']
@@ -411,6 +421,37 @@ export default function Diagnostic() {
                   </h4>
                   <p className="text-sm text-gray-300">{info.fix}</p>
                 </div>
+
+                {selectedItem.ssl_info && (
+                  <div className="bg-[#0d1424] border border-cyan-500/20 rounded-lg p-4">
+                    <h4 className="text-sm font-semibold text-cyan-400 mb-3 flex items-center gap-2">
+                      <Shield className="w-4 h-4" /> Datos reales del certificado SSL
+                    </h4>
+                    <div className="grid grid-cols-2 gap-3 text-sm">
+                      <div>
+                        <p className="text-gray-500">Dominio (CN)</p>
+                        <p className="text-white">{selectedItem.ssl_info.cn || 'N/A'}</p>
+                      </div>
+                      <div>
+                        <p className="text-gray-500">Emisor</p>
+                        <p className="text-white truncate" title={selectedItem.ssl_info.issuer || 'N/A'}>{selectedItem.ssl_info.issuer || 'N/A'}</p>
+                      </div>
+                      <div>
+                        <p className="text-gray-500">Válido desde</p>
+                        <p className="text-white">{selectedItem.ssl_info.not_before ? new Date(selectedItem.ssl_info.not_before).toLocaleDateString('es-GT') : 'N/A'}</p>
+                      </div>
+                      <div>
+                        <p className="text-gray-500">Vence el</p>
+                        <p className={`font-medium ${selectedItem.ssl_info.expired ? 'text-red-400' : selectedItem.ssl_info.days_left <= 30 ? 'text-yellow-400' : 'text-green-400'}`}>
+                          {selectedItem.ssl_info.not_after ? new Date(selectedItem.ssl_info.not_after).toLocaleDateString('es-GT') : 'N/A'}
+                          {selectedItem.ssl_info.days_left !== undefined && (
+                            <span className="text-xs ml-2">({selectedItem.ssl_info.days_left} días restantes)</span>
+                          )}
+                        </p>
+                      </div>
+                    </div>
+                  </div>
+                )}
 
                 <div className="flex items-center justify-between pt-2">
                   <span className={`inline-block px-3 py-1 rounded text-sm font-medium uppercase ${sevColor[selectedItem.severity]}`}>Severidad: {selectedItem.severity}</span>
