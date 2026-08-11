@@ -85,7 +85,8 @@ class ScanReport:
 class NmapScanner:
 
     def __init__(self):
-        self.timeout = 2
+        self.timeout = 1.0
+        self.max_scan_time = 15
 
     def _scan_port(self, ip: str, port: int) -> Dict[str, Any]:
         try:
@@ -96,24 +97,14 @@ class NmapScanner:
 
             if result == 0:
                 service_name, service_label = COMMON_PORTS.get(port, ("unknown", "Unknown"))
-                try:
-                    sock2 = socket.socket(socket.AF_INET, socket.SOCK_STREAM)
-                    sock2.settimeout(self.timeout)
-                    sock2.connect((ip, port))
-                    sock2.send(b"HEAD / HTTP/1.0\r\nHost: %s\r\n\r\n" % ip.encode())
-                    banner = sock2.recv(1024).decode("utf-8", errors="ignore").strip()
-                    sock2.close()
-                except Exception:
-                    banner = ""
-
                 return {
                     "port": port,
                     "protocol": "tcp",
                     "state": "open",
                     "service": service_name,
                     "service_label": service_label,
-                    "version": banner[:100] if banner else "",
-                    "raw": f"{port}/tcp  open  {service_name}  {banner[:50]}"
+                    "version": "",
+                    "raw": f"{port}/tcp  open  {service_name}"
                 }
         except Exception as e:
             logger.debug(f"Port scan error {ip}:{port}: {e}")
@@ -202,7 +193,11 @@ class NmapScanner:
             pass
 
         open_ports = []
+        import time
+        start_time = time.time()
         for port in ports:
+            if time.time() - start_time > self.max_scan_time:
+                break
             result = self._scan_port(ip, port)
             if result:
                 open_ports.append(result)
@@ -226,12 +221,12 @@ class NmapScanner:
             return port_list
 
         if scan_type == "full":
-            return list(COMMON_PORTS.keys())
-        elif scan_type == "vuln":
-            return [21, 22, 23, 25, 80, 135, 139, 443, 445, 1433, 3306, 3389, 5432, 5900, 6379, 8080, 27017]
-        else:
-            return [21, 22, 23, 25, 53, 80, 110, 135, 139, 143, 443, 445, 993, 995,
+            return [21, 22, 23, 25, 80, 110, 135, 139, 443, 445, 993, 995,
                     1433, 1521, 3306, 3389, 5432, 5900, 6379, 8080, 8443, 9200, 27017]
+        elif scan_type == "vuln":
+            return [21, 22, 23, 80, 135, 443, 445, 1433, 3306, 3389, 5432, 5900, 6379, 27017]
+        else:
+            return [21, 22, 80, 443, 3389, 3306, 5432, 6379, 8080, 27017]
 
     def quick_scan(self, target: str) -> ScanReport:
         return self.scan_host(target, scan_type="quick")
