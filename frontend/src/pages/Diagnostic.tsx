@@ -168,6 +168,11 @@ export default function Diagnostic() {
   }
 
   const getVulnInfo = (cveId: string, title: string) => {
+    if (!cveId) return {
+      what: `Vulnerabilidad detectada: ${title || 'desconocida'}. Esta vulnerabilidad fue identificada por el escáner de seguridad y requiere revisión.`,
+      risk: `Puede ser explotada para comprometer la seguridad del activo afectado.`,
+      fix: `Revisar la documentación del CVE correspondiente y aplicar las recomendaciones del vendor.`
+    }
     const key = Object.keys(VULN_DETAILS).find(k => cveId.includes(k))
     if (key) return VULN_DETAILS[key]
     if (cveId.includes('ADMIN')) return VULN_DETAILS['ADMIN-EXPOSED']
@@ -184,6 +189,11 @@ export default function Diagnostic() {
   }
 
   const getComplianceInfo = (standard: string) => {
+    if (!standard) return {
+      description: 'Estándar de cumplimiento de seguridad.',
+      requirement: 'Cumplir con los controles establecidos.',
+      action: 'Revisar y implementar los controles requeridos.'
+    }
     const key = Object.keys(COMPLIANCE_DETAILS).find(k => standard.includes(k))
     return key ? COMPLIANCE_DETAILS[key] : {
       description: 'Estándar de cumplimiento de seguridad.',
