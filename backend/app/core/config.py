@@ -14,7 +14,7 @@ class Settings(BaseSettings):
     ACCESS_TOKEN_EXPIRE_MINUTES: int = 30
     REFRESH_TOKEN_EXPIRE_DAYS: int = 7
 
-    CORS_ORIGINS: Union[str, List[str]] = '["http://localhost:5173","http://localhost:3000"]'
+    CORS_ORIGINS: Union[str, List[str]] = '["http://localhost:5173","http://localhost:3000","https://guardia-gt-frontend.onrender.com","https://guardia-gt-backend.onrender.com"]'
 
     OPENAI_API_KEY: str = ""
     OPENAI_MODEL: str = "gpt-4"

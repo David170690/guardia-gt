@@ -12,7 +12,7 @@ services:
       - key: SECRET_KEY
         generateValue: true
       - key: CORS_ORIGINS
-        value: '["https://guardia.gt","https://www.guardia.gt"]'
+        value: '["http://localhost:5173","http://localhost:3000","https://guardia-gt-frontend.onrender.com","https://guardia-gt-backend.onrender.com"]'
     rootDir: backend
     healthCheckPath: /health
 
