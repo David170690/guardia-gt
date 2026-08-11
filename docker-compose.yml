@@ -26,11 +26,30 @@ services:
     environment:
       DATABASE_URL: postgresql://guardia:guardia123@postgres:5432/guardia_gt
       SECRET_KEY: guardia-gt-secret-key-change-in-production-2026
+      OPENVAS_HOST: openvas
+      OPENVAS_PORT: 9390
     depends_on:
       postgres:
         condition: service_healthy
+      openvas:
+        condition: service_started
     volumes:
       - ./backend:/app
+
+  openvas:
+    image: greenbone/openvas:latest
+    container_name: guardia-openvas
+    ports:
+      - "9390:9390"
+      - "9392:9392"
+    volumes:
+      - openvas_data:/var/lib/openvas
+    healthcheck:
+      test: ["CMD-SHELL", "curl -f http://localhost:9390 || exit 1"]
+      interval: 30s
+      timeout: 10s
+      retries: 3
+      start_period: 60s
 
   frontend:
     build: ./frontend
@@ -47,3 +66,4 @@ services:
 
 volumes:
   postgres_data:
+  openvas_data:
