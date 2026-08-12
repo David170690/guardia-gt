@@ -28,6 +28,7 @@ from cryptography import x509
 from cryptography.hazmat.backends import default_backend
 
 from app.core.config import settings
+from app.services import cve_lookup
 
 logger = logging.getLogger(__name__)
 
@@ -505,6 +506,10 @@ class NetworkScanner:
                     "solution": "Suprime los banners de versión en la configuración del servicio.",
                     "source": "scanner",
                 })
+                # Si el banner revela versión y la confirmación está activada,
+                # consulta el NVD por CVEs reales. Best-effort: sin conexión o
+                # desactivado, devuelve una lista vacía y no altera el escaneo.
+                findings.extend(cve_lookup.confirm_cves(port_result.banner, component))
 
         if host.truncated:
             findings.append({

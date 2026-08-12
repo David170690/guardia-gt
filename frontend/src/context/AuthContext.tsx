@@ -8,7 +8,7 @@ interface AuthState {
 }
 
 interface AuthContextType extends AuthState {
-  login: (email: string, password: string) => Promise<boolean>
+  login: (email: string, password: string, code?: string) => Promise<boolean>
   logout: () => void
   checkAuth: () => Promise<void>
 }
@@ -42,8 +42,8 @@ export function AuthProvider({ children }: { children: ReactNode }) {
     checkAuth()
   }, [checkAuth])
 
-  const login = async (email: string, password: string) => {
-    const response = await authAPI.login(email, password)
+  const login = async (email: string, password: string, code?: string) => {
+    const response = await authAPI.login(email, password, code)
     const { access_token, refresh_token } = response.data
     localStorage.setItem('access_token', access_token)
     localStorage.setItem('refresh_token', refresh_token)

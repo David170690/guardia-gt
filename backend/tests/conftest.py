@@ -11,6 +11,7 @@ os.environ["DATABASE_URL"] = f"sqlite:///{os.path.join(tempfile.gettempdir(), 'g
 os.environ["SECRET_KEY"] = "clave-solo-para-pruebas"
 os.environ["SEED_TOKEN"] = "token-de-prueba"
 os.environ["CORS_ORIGINS"] = '["http://localhost:5173"]'
+os.environ["RATE_LIMIT_ENABLED"] = "false"
 
 import pytest  # noqa: E402
 from fastapi.testclient import TestClient  # noqa: E402

@@ -19,6 +19,28 @@ class Settings(BaseSettings):
     # Bootstrap de datos de demostración. Si queda vacío, POST /seed responde 403.
     SEED_TOKEN: str = ""
 
+    # Limitación de tasa (login y diagnóstico). Se desactiva en las pruebas.
+    RATE_LIMIT_ENABLED: bool = True
+
+    # --- IA (redacción del informe ejecutivo) --------------------------------
+    # Modelo abierto vía un proveedor compatible con la API de OpenAI (OpenRouter
+    # por defecto). Si AI_API_KEY queda vacío, el informe se genera con una
+    # plantilla determinista sobre los hallazgos reales: nunca se inventan datos.
+    AI_API_KEY: str = ""
+    AI_BASE_URL: str = "https://openrouter.ai/api/v1"
+    # Ajusta al slug exacto del proveedor. Ejemplo de modelo libre en OpenRouter.
+    AI_MODEL: str = "xiaomi/mimo-v2.5:free"
+    AI_TIMEOUT_SECONDS: float = 45.0
+    AI_MAX_TOKENS: int = 1200
+
+    # --- Confirmación de CVEs por versión ------------------------------------
+    # Consulta la API pública del NVD a partir de la versión leída del banner.
+    # Desactivada por defecto: el NVD limita las peticiones y podría ralentizar
+    # un diagnóstico en vivo. Actívala en instalaciones con tiempo de sobra.
+    CVE_LOOKUP_ENABLED: bool = False
+    CVE_LOOKUP_TIMEOUT_SECONDS: float = 6.0
+    CVE_LOOKUP_MAX_PER_SERVICE: int = 3
+
     # Límites del motor de diagnóstico.
     # Escanear direcciones privadas o de loopback desde el servidor permite sondear
     # la red interna del proveedor, así que está deshabilitado salvo activación explícita.

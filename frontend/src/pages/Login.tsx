@@ -1,12 +1,14 @@
 import { useState } from 'react'
 import { useNavigate } from 'react-router-dom'
 import { useAuth } from '../context/AuthContext'
-import { ShieldCheck, Mail, Lock, AlertCircle } from 'lucide-react'
+import { ShieldCheck, Mail, Lock, AlertCircle, KeyRound } from 'lucide-react'
 import toast from 'react-hot-toast'
 
 export default function Login() {
   const [email, setEmail] = useState('')
   const [password, setPassword] = useState('')
+  const [code, setCode] = useState('')
+  const [mfaRequired, setMfaRequired] = useState(false)
   const [error, setError] = useState('')
   const [loading, setLoading] = useState(false)
   const { login } = useAuth()
@@ -18,11 +20,18 @@ export default function Login() {
     setLoading(true)
 
     try {
-      await login(email, password)
+      await login(email, password, mfaRequired ? code : undefined)
       toast.success('Sesión iniciada correctamente')
       navigate('/')
     } catch (err: any) {
-      setError(err.response?.data?.detail || 'Credenciales inválidas')
+      // 428: la cuenta tiene MFA activo y falta el código de verificación.
+      if (err.response?.status === 428) {
+        setMfaRequired(true)
+        setError('')
+        toast('Ingresa el código de tu app de autenticación', { icon: '🔐' })
+      } else {
+        setError(err.response?.data?.detail || 'Credenciales inválidas')
+      }
     } finally {
       setLoading(false)
     }
@@ -87,12 +96,37 @@ export default function Login() {
               </div>
             </div>
 
+            {mfaRequired && (
+              <div>
+                <label className="block text-sm font-medium text-gray-300 mb-1.5">
+                  Código de verificación (MFA)
+                </label>
+                <div className="relative">
+                  <KeyRound className="absolute left-3 top-1/2 -translate-y-1/2 w-5 h-5 text-gray-400" />
+                  <input
+                    type="text"
+                    inputMode="numeric"
+                    autoComplete="one-time-code"
+                    value={code}
+                    onChange={(e) => setCode(e.target.value.replace(/\D/g, '').slice(0, 6))}
+                    className="w-full pl-10 pr-4 py-2.5 bg-[#0d1424] border border-white/10 rounded-lg text-white tracking-widest placeholder-gray-500 focus:outline-none focus:ring-2 focus:ring-cyan-500/50 focus:border-cyan-500"
+                    placeholder="000000"
+                    autoFocus
+                    required
+                  />
+                </div>
+                <p className="text-xs text-gray-500 mt-1.5">
+                  Abre tu app de autenticación e introduce el código de seis dígitos.
+                </p>
+              </div>
+            )}
+
             <button
               type="submit"
               disabled={loading}
               className="w-full py-2.5 bg-gradient-to-r from-cyan-500 to-blue-500 text-white font-medium rounded-lg hover:from-cyan-600 hover:to-blue-600 transition-all disabled:opacity-50 disabled:cursor-not-allowed"
             >
-              {loading ? 'Iniciando sesión...' : 'Iniciar Sesión'}
+              {loading ? 'Iniciando sesión...' : mfaRequired ? 'Verificar y entrar' : 'Iniciar Sesión'}
             </button>
           </form>
 

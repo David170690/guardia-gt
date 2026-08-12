@@ -1,7 +1,8 @@
 import { useState, useEffect } from 'react'
 import { reportsAPI, incidentsAPI, vulnerabilitiesAPI } from '../services/api'
 import { Report, ReportsResponse, TrendsResponse, IncidentStats, VulnerabilityStats } from '../types'
-import { BarChart3, FileText, TrendingDown, Database } from 'lucide-react'
+import { BarChart3, FileText, TrendingDown, Database, Download } from 'lucide-react'
+import toast from 'react-hot-toast'
 import {
   LineChart,
   Line,
@@ -21,6 +22,26 @@ export default function Reports() {
   const [incidentStats, setIncidentStats] = useState<IncidentStats | null>(null)
   const [vulnStats, setVulnStats] = useState<VulnerabilityStats | null>(null)
   const [loading, setLoading] = useState(true)
+  const [downloading, setDownloading] = useState<string | null>(null)
+
+  const download = async (type: string) => {
+    setDownloading(type)
+    try {
+      const res = await reportsAPI.exportCsv(type)
+      const url = window.URL.createObjectURL(res.data)
+      const link = document.createElement('a')
+      link.href = url
+      link.download = `${type}.csv`
+      document.body.appendChild(link)
+      link.click()
+      link.remove()
+      window.URL.revokeObjectURL(url)
+    } catch {
+      toast.error('No se pudo descargar el reporte')
+    } finally {
+      setDownloading(null)
+    }
+  }
 
   useEffect(() => {
     const fetchData = async () => {
@@ -174,19 +195,19 @@ export default function Reports() {
                     <p className="text-xs text-gray-400">{report.description}</p>
                   </div>
                 </div>
-                <div className="flex items-center gap-4 flex-shrink-0">
+                <div className="flex items-center gap-3 flex-shrink-0">
                   <span className="text-xs text-gray-400 tabular-nums">
                     {report.records} registro{report.records === 1 ? '' : 's'}
                   </span>
-                  <span
-                    className={`text-xs font-medium px-2 py-1 rounded ${
-                      report.available
-                        ? 'text-green-400 bg-green-500/10'
-                        : 'text-gray-500 bg-gray-500/10'
-                    }`}
+                  <button
+                    onClick={() => download(report.id)}
+                    disabled={!report.available || downloading === report.id}
+                    title={report.available ? 'Descargar CSV' : 'Sin datos para exportar'}
+                    className="flex items-center gap-1.5 text-xs font-medium px-3 py-1.5 rounded-lg bg-cyan-500/10 text-cyan-400 hover:bg-cyan-500/20 transition-colors disabled:opacity-40 disabled:cursor-not-allowed"
                   >
-                    {report.available ? 'Con datos' : 'Sin datos'}
-                  </span>
+                    <Download className="w-3.5 h-3.5" />
+                    {downloading === report.id ? 'Descargando…' : 'CSV'}
+                  </button>
                 </div>
               </div>
             ))}

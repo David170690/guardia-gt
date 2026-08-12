@@ -60,7 +60,7 @@ export default function Assets() {
     <div className="p-6 space-y-6">
       <div>
         <h1 className="text-2xl font-bold text-white">Gestión de Activos TI</h1>
-        <p className="text-gray-400 mt-1">Inventario automatizado y monitoreo en tiempo real</p>
+        <p className="text-gray-400 mt-1">Inventario de activos descubiertos y registrados</p>
       </div>
 
       {stats && (
@@ -117,40 +117,53 @@ export default function Assets() {
                 </div>
               </div>
 
-              <p className="text-xs text-gray-400 mb-3">{asset.operating_system}</p>
+              <p className="text-xs text-gray-400 mb-3">{asset.operating_system || 'Sistema operativo no identificado'}</p>
 
-              <div className="space-y-2">
-                <div>
-                  <div className="flex justify-between text-xs mb-1">
-                    <span className="text-gray-400">CPU</span>
-                    <span className="text-white">{asset.cpu_usage}%</span>
-                  </div>
-                  <div className="h-1.5 bg-[#0d1424] rounded-full overflow-hidden">
-                    <div
-                      className={`h-full rounded-full transition-all ${
-                        asset.cpu_usage > 80 ? 'bg-red-500' :
-                        asset.cpu_usage > 60 ? 'bg-yellow-500' : 'bg-green-500'
-                      }`}
-                      style={{ width: `${asset.cpu_usage}%` }}
-                    />
-                  </div>
+              {/* CPU/RAM solo se muestran si hay un valor cargado manualmente.
+                  La plataforma no instala agentes, así que no hay telemetría en vivo:
+                  un activo recién escaneado no tiene estas métricas. */}
+              {(asset.cpu_usage > 0 || asset.ram_usage > 0) ? (
+                <div className="space-y-2">
+                  {asset.cpu_usage > 0 && (
+                    <div>
+                      <div className="flex justify-between text-xs mb-1">
+                        <span className="text-gray-400">CPU (referencia)</span>
+                        <span className="text-white tabular-nums">{asset.cpu_usage}%</span>
+                      </div>
+                      <div className="h-1.5 bg-[#0d1424] rounded-full overflow-hidden">
+                        <div
+                          className={`h-full rounded-full transition-all ${
+                            asset.cpu_usage > 80 ? 'bg-red-500' :
+                            asset.cpu_usage > 60 ? 'bg-yellow-500' : 'bg-green-500'
+                          }`}
+                          style={{ width: `${asset.cpu_usage}%` }}
+                        />
+                      </div>
+                    </div>
+                  )}
+                  {asset.ram_usage > 0 && (
+                    <div>
+                      <div className="flex justify-between text-xs mb-1">
+                        <span className="text-gray-400">RAM (referencia)</span>
+                        <span className="text-white tabular-nums">{asset.ram_usage}%</span>
+                      </div>
+                      <div className="h-1.5 bg-[#0d1424] rounded-full overflow-hidden">
+                        <div
+                          className={`h-full rounded-full transition-all ${
+                            asset.ram_usage > 80 ? 'bg-red-500' :
+                            asset.ram_usage > 60 ? 'bg-yellow-500' : 'bg-green-500'
+                          }`}
+                          style={{ width: `${asset.ram_usage}%` }}
+                        />
+                      </div>
+                    </div>
+                  )}
                 </div>
-                <div>
-                  <div className="flex justify-between text-xs mb-1">
-                    <span className="text-gray-400">RAM</span>
-                    <span className="text-white">{asset.ram_usage}%</span>
-                  </div>
-                  <div className="h-1.5 bg-[#0d1424] rounded-full overflow-hidden">
-                    <div
-                      className={`h-full rounded-full transition-all ${
-                        asset.ram_usage > 80 ? 'bg-red-500' :
-                        asset.ram_usage > 60 ? 'bg-yellow-500' : 'bg-green-500'
-                      }`}
-                      style={{ width: `${asset.ram_usage}%` }}
-                    />
-                  </div>
-                </div>
-              </div>
+              ) : (
+                <p className="text-xs text-gray-600 italic">
+                  Sin métricas de uso (requiere carga manual)
+                </p>
+              )}
 
               <div className="mt-3 pt-3 border-t border-white/5 flex items-center justify-between">
                 <span className={`text-xs font-medium ${criticalityColors[asset.criticality]}`}>

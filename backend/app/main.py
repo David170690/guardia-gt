@@ -3,12 +3,16 @@ from contextlib import asynccontextmanager
 
 from fastapi import Depends, FastAPI, Header, HTTPException
 from fastapi.middleware.cors import CORSMiddleware
+from slowapi import _rate_limit_exceeded_handler
+from slowapi.errors import RateLimitExceeded
 from sqlalchemy.orm import Session
 
 from app.core.config import settings
 from app.core.database import Base, apply_schema_fixes, engine, get_db
 from app.core.deps import get_current_user, require_admin
+from app.core.ratelimit import limiter
 from app.routes import (
+    ai,
     assets,
     auth,
     compliance,
@@ -46,6 +50,10 @@ app = FastAPI(
     lifespan=lifespan,
 )
 
+# Limitador de tasa: protege el login de fuerza bruta y el diagnóstico de abuso.
+app.state.limiter = limiter
+app.add_exception_handler(RateLimitExceeded, _rate_limit_exceeded_handler)
+
 # Los orígenes salen de la configuración. Antes estaban fijados a ["*"], así que la
 # variable CORS_ORIGINS del despliegue no tenía ningún efecto.
 app.add_middleware(
@@ -68,6 +76,7 @@ app.include_router(assets.router, prefix="/api/assets", tags=["Activos"], depend
 app.include_router(incidents.router, prefix="/api/incidents", tags=["Incidentes"], dependencies=authenticated)
 app.include_router(reports.router, prefix="/api/reports", tags=["Reportes"], dependencies=authenticated)
 app.include_router(diagnostic.router, prefix="/api/diagnostic", tags=["Diagnóstico"], dependencies=authenticated)
+app.include_router(ai.router, prefix="/api/ai", tags=["IA"], dependencies=authenticated)
 app.include_router(settings_router.router, prefix="/api/settings", tags=["Configuración"], dependencies=authenticated)
 app.include_router(users.router, prefix="/api/users", tags=["Usuarios"], dependencies=[Depends(require_admin)])
 

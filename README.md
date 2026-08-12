@@ -12,11 +12,34 @@ Plataforma de gestión preventiva de riesgos cibernéticos para instituciones p�
 | Cumplimiento | Operativo | Controles cargados en la plataforma |
 | Dashboard | Operativo | Agregaciones calculadas sobre los datos |
 | Reportes y tendencias | Operativo | Calculados sobre fechas reales de hallazgos |
+| Exportación CSV / PDF | Operativo | CSV de inventarios y PDF ejecutivo con datos reales |
 | Bitácora de auditoría | Operativo | Se escribe en `audit_logs` |
-| **IA Predictiva** | **Maqueta** | Pantalla de diseño; no hay ningún modelo integrado |
+| Doble factor (MFA) | Operativo | TOTP compatible con Google Authenticator |
+| **Informe ejecutivo con IA** | Operativo | Redacción a partir de hallazgos reales (modelo o plantilla) |
 
-La pantalla de IA está marcada como maqueta dentro de la propia interfaz para que
-nadie confunda sus cifras de ejemplo con resultados medidos.
+Ya no queda ninguna pantalla con datos ficticios. El informe ejecutivo con IA usa un
+modelo abierto cuando hay clave configurada, y una plantilla determinista sobre los
+hallazgos reales cuando no la hay: en ningún caso se inventan cifras.
+
+## Informe ejecutivo con IA
+
+La pantalla de IA toma los hallazgos reales de una organización diagnosticada y produce
+un resumen para dirección más un plan de remediación priorizado.
+
+- **Con modelo** (`AI_API_KEY` definida): un modelo abierto vía OpenRouter (MiMo por
+  defecto) redacta la prosa. El prompt le prohíbe añadir cifras o CVEs que no estén en
+  los datos.
+- **Sin modelo**: una plantilla determinista compone el informe con los mismos hallazgos.
+
+Para activar el modelo, crea una cuenta gratuita en [OpenRouter](https://openrouter.ai),
+genera una API key y define `AI_API_KEY` y `AI_MODEL` (el slug exacto del modelo libre).
+
+## Confirmación de CVEs
+
+El escáner reporta *exposiciones* sin afirmar CVEs. Si `CVE_LOOKUP_ENABLED=true`, cuando
+un banner revela producto y versión se consulta la API pública del NVD y, si hay
+coincidencias reales, se añaden hallazgos de tipo `cve` con identificadores verificados.
+Está desactivado por defecto porque el NVD limita las peticiones.
 
 ## Qué detecta el diagnóstico
 
@@ -110,7 +133,9 @@ del escáner, la generación de hallazgos y el aislamiento de datos entre organi
 - El registro público siempre crea usuarios con rol `viewer`; los roles los asigna un administrador.
 - Los roles se aplican en la API: `viewer` es solo lectura, `analyst` puede escribir, `admin` gestiona usuarios.
 - Un token de refresco no sirve para consumir la API.
-- Las acciones sensibles (inicio de sesión, cambios de usuario, diagnósticos) quedan en `audit_logs`.
+- Doble factor opcional con TOTP; el login exige el código de seis dígitos si está activo.
+- Límite de tasa en el login (10/min) y el diagnóstico (6/min) para frenar abuso.
+- Las acciones sensibles (inicio de sesión, cambios de usuario, MFA, diagnósticos) quedan en `audit_logs`.
 
 ## Estructura
 
@@ -151,8 +176,11 @@ guardia-gt/
 | GET/POST/PUT | `/api/incidents/` | Lectura autenticada, escritura `analyst`+ |
 | GET/POST/PUT | `/api/compliance/` | Lectura autenticada, escritura `analyst`+ |
 | GET | `/api/reports/`, `/api/reports/trends` | Autenticado |
-| POST | `/api/diagnostic/run` | Autenticado |
+| GET | `/api/reports/export/{tipo}` (CSV), `/api/reports/pdf` | Autenticado |
+| POST | `/api/diagnostic/run` | Autenticado · máx. 6/min |
+| GET/POST | `/api/ai/status`, `/api/ai/organizations`, `/api/ai/report` | Autenticado |
 | GET/PUT | `/api/settings/*` | Autenticado |
+| POST | `/api/settings/mfa/{setup,enable,disable}` | Autenticado |
 | GET/POST/PUT/DELETE | `/api/users/` | `admin` |
 | POST | `/seed` | Cabecera `X-Seed-Token` |
 | GET | `/health` | Público |

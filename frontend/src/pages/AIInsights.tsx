@@ -1,164 +1,230 @@
-import { Brain, Zap, Shield, AlertTriangle, TrendingUp, FileText } from 'lucide-react'
+import { useState, useEffect } from 'react'
+import { aiAPI, reportsAPI } from '../services/api'
+import { Brain, Shield, AlertTriangle, CheckCircle2, FileDown, Sparkles, Cpu } from 'lucide-react'
+import toast from 'react-hot-toast'
 import DataNote from '../components/DataNote'
+import EmptyState from '../components/EmptyState'
+
+interface AiStatus {
+  enabled: boolean
+  model: string | null
+  mode: string
+  note: string
+}
+
+interface Report {
+  organization: string
+  risk_level: string
+  generated_by: string
+  model: string | null
+  executive_summary: string
+  key_risks: string[]
+  remediation_plan: string[]
+}
+
+const riskColors: Record<string, string> = {
+  crítico: 'text-red-400 bg-red-500/10 border-red-500/20',
+  alto: 'text-orange-400 bg-orange-500/10 border-orange-500/20',
+  medio: 'text-yellow-400 bg-yellow-500/10 border-yellow-500/20',
+  bajo: 'text-green-400 bg-green-500/10 border-green-500/20',
+}
+
+function downloadBlob(data: Blob, filename: string) {
+  const url = window.URL.createObjectURL(data)
+  const link = document.createElement('a')
+  link.href = url
+  link.download = filename
+  document.body.appendChild(link)
+  link.click()
+  link.remove()
+  window.URL.revokeObjectURL(url)
+}
 
 export default function AIInsights() {
+  const [status, setStatus] = useState<AiStatus | null>(null)
+  const [organizations, setOrganizations] = useState<string[]>([])
+  const [selected, setSelected] = useState('')
+  const [report, setReport] = useState<Report | null>(null)
+  const [loading, setLoading] = useState(false)
+  const [downloading, setDownloading] = useState(false)
+
+  useEffect(() => {
+    const load = async () => {
+      try {
+        const [statusRes, orgsRes] = await Promise.all([
+          aiAPI.getStatus(),
+          aiAPI.listOrganizations(),
+        ])
+        setStatus(statusRes.data)
+        const orgs = orgsRes.data.organizations || []
+        setOrganizations(orgs)
+        if (orgs.length > 0) setSelected(orgs[0])
+      } catch {
+        toast.error('No se pudo cargar el estado de la IA')
+      }
+    }
+    load()
+  }, [])
+
+  const generate = async () => {
+    if (!selected) {
+      toast.error('Selecciona una organización')
+      return
+    }
+    setLoading(true)
+    setReport(null)
+    try {
+      const res = await aiAPI.generateReport(selected)
+      setReport(res.data)
+      toast.success('Informe generado')
+    } catch (err: any) {
+      toast.error(err.response?.data?.detail || 'No se pudo generar el informe')
+    } finally {
+      setLoading(false)
+    }
+  }
+
+  const downloadPdf = async () => {
+    if (!selected) return
+    setDownloading(true)
+    try {
+      const res = await reportsAPI.exportPdf(selected)
+      downloadBlob(res.data, `informe_${selected.replace(/\s+/g, '_')}.pdf`)
+    } catch {
+      toast.error('No se pudo descargar el PDF')
+    } finally {
+      setDownloading(false)
+    }
+  }
+
   return (
     <div className="p-6 space-y-6">
       <div>
-        <h1 className="text-2xl font-bold text-white">IA Predictiva</h1>
-        <p className="text-gray-400 mt-1">Diseño de la funcionalidad de predicción y análisis asistido</p>
+        <h1 className="text-2xl font-bold text-white">Informe Ejecutivo con IA</h1>
+        <p className="text-gray-400 mt-1">
+          Redacción del resumen ejecutivo y plan de remediación a partir de los hallazgos reales
+        </p>
       </div>
 
-      <DataNote tone="demo" title="Maqueta de diseño — no hay un modelo detrás">
-        Todas las cifras de esta pantalla (probabilidades, precisión, tiempos de respuesta y ahorro
-        estimado) son valores de ejemplo escritos en la interfaz para ilustrar el producto. La
-        plataforma todavía no integra ningún modelo de lenguaje. El resto de módulos sí opera sobre
-        datos reales de la base de datos.
-      </DataNote>
+      {status && (
+        <DataNote tone={status.enabled ? 'info' : 'demo'} title={status.enabled ? `Modelo activo: ${status.model}` : 'Modo plantilla (sin modelo configurado)'}>
+          {status.note}
+        </DataNote>
+      )}
 
-      <div className="grid grid-cols-1 lg:grid-cols-2 gap-6">
-        <div className="bg-gradient-to-br from-[#0f172a] to-[#1e293b] border border-white/10 rounded-xl p-6">
-          <div className="flex items-center gap-3 mb-4">
-            <div className="w-10 h-10 rounded-lg bg-cyan-500/20 flex items-center justify-center">
-              <Brain className="w-5 h-5 text-cyan-400" />
-            </div>
-            <div>
-              <h3 className="font-semibold text-white">Predicción de Ataques</h3>
-              <p className="text-xs text-gray-400">Basado en patrones de los últimos 90 días</p>
-            </div>
-          </div>
-          <div className="p-4 bg-red-500/10 border border-red-500/20 rounded-lg mb-4">
-            <div className="flex items-start gap-2">
-              <AlertTriangle className="w-5 h-5 text-red-400 mt-0.5 flex-shrink-0" />
-              <div>
-                <p className="text-sm text-red-400 font-medium">Alta probabilidad de ataque ransomware</p>
-                <p className="text-xs text-gray-400 mt-1">
-                  Predicción para las próximas 72 horas contra servidores de base de datos.
-                  Confianza: 87%
-                </p>
-              </div>
-            </div>
-          </div>
-          <div className="p-4 bg-yellow-500/10 border border-yellow-500/20 rounded-lg">
-            <div className="flex items-start gap-2">
-              <Zap className="w-5 h-5 text-yellow-400 mt-0.5 flex-shrink-0" />
-              <div>
-                <p className="text-sm text-yellow-400 font-medium">Intentos de phishing incrementando</p>
-                <p className="text-xs text-gray-400 mt-1">
-                  Incremento del 34% en campañas de phishing dirigidas al sector gubernamental.
-                </p>
-              </div>
-            </div>
-          </div>
-        </div>
-
-        <div className="bg-gradient-to-br from-[#0f172a] to-[#1e293b] border border-white/10 rounded-xl p-6">
-          <div className="flex items-center gap-3 mb-4">
-            <div className="w-10 h-10 rounded-lg bg-purple-500/20 flex items-center justify-center">
-              <Shield className="w-5 h-5 text-purple-400" />
-            </div>
-            <div>
-              <h3 className="font-semibold text-white">Análisis de Riesgos</h3>
-              <p className="text-xs text-gray-400">Priorización automática con IA</p>
-            </div>
-          </div>
-          <div className="space-y-3">
-            <div className="p-3 bg-[#0d1424] rounded-lg border border-white/5">
-              <div className="flex items-center justify-between">
-                <span className="text-sm text-white">CVE-2026-1234</span>
-                <span className="text-xs font-bold text-red-400">CVSS 9.8</span>
-              </div>
-              <p className="text-xs text-gray-400 mt-1">Prioridad: Inmediata — Servidor web expuesto</p>
-            </div>
-            <div className="p-3 bg-[#0d1424] rounded-lg border border-white/5">
-              <div className="flex items-center justify-between">
-                <span className="text-sm text-white">CVE-2026-0567</span>
-                <span className="text-xs font-bold text-orange-400">CVSS 8.5</span>
-              </div>
-              <p className="text-xs text-gray-400 mt-1">Prioridad: Alta — Firewall vulnerable</p>
-            </div>
-            <div className="p-3 bg-[#0d1424] rounded-lg border border-white/5">
-              <div className="flex items-center justify-between">
-                <span className="text-sm text-white">CVE-2026-0891</span>
-                <span className="text-xs font-bold text-orange-400">CVSS 7.2</span>
-              </div>
-              <p className="text-xs text-gray-400 mt-1">Prioridad: Alta — Base de datos comprometida</p>
-            </div>
-          </div>
-        </div>
-      </div>
-
+      {/* Generador */}
       <div className="bg-[#111c32] border border-white/10 rounded-xl p-6">
         <div className="flex items-center gap-3 mb-4">
-          <div className="w-10 h-10 rounded-lg bg-green-500/20 flex items-center justify-center">
-            <FileText className="w-5 h-5 text-green-400" />
+          <div className="w-10 h-10 rounded-lg bg-cyan-500/20 flex items-center justify-center">
+            <Brain className="w-5 h-5 text-cyan-400" />
           </div>
           <div>
-            <h3 className="font-semibold text-white">Generación Automática de Reportes</h3>
-            <p className="text-xs text-gray-400">Documentos listos para auditoría</p>
+            <h3 className="font-semibold text-white">Generar informe</h3>
+            <p className="text-xs text-gray-400">Elige una organización diagnosticada</p>
           </div>
         </div>
-        <div className="grid grid-cols-1 md:grid-cols-2 lg:grid-cols-4 gap-4">
-          <div className="p-4 bg-[#0d1424] rounded-lg border border-white/5">
-            <div className="flex items-center justify-between mb-2">
-              <span className="text-sm font-medium text-white">Cumplimiento ISO 27001</span>
-              <span className="text-xs text-green-400">Listo</span>
-            </div>
-            <p className="text-xs text-gray-400">48 páginas · PDF · Generado hoy</p>
+
+        {organizations.length > 0 ? (
+          <div className="flex flex-col sm:flex-row gap-3">
+            <select
+              value={selected}
+              onChange={(e) => setSelected(e.target.value)}
+              className="flex-1 px-4 py-2.5 bg-[#0d1424] border border-white/10 rounded-lg text-white focus:outline-none focus:ring-2 focus:ring-cyan-500/50"
+            >
+              {organizations.map((org) => (
+                <option key={org} value={org}>{org}</option>
+              ))}
+            </select>
+            <button
+              onClick={generate}
+              disabled={loading}
+              className="flex items-center justify-center gap-2 px-5 py-2.5 bg-gradient-to-r from-cyan-500 to-blue-500 text-white font-medium rounded-lg hover:from-cyan-600 hover:to-blue-600 transition-all disabled:opacity-50"
+            >
+              <Sparkles className="w-4 h-4" />
+              {loading ? 'Generando…' : 'Generar informe'}
+            </button>
           </div>
-          <div className="p-4 bg-[#0d1424] rounded-lg border border-white/5">
-            <div className="flex items-center justify-between mb-2">
-              <span className="text-sm font-medium text-white">Vulnerabilidades Mensual</span>
-              <span className="text-xs text-green-400">Listo</span>
-            </div>
-            <p className="text-xs text-gray-400">24 páginas · PDF · Generado hoy</p>
-          </div>
-          <div className="p-4 bg-[#0d1424] rounded-lg border border-white/5">
-            <div className="flex items-center justify-between mb-2">
-              <span className="text-sm font-medium text-white">Resumen Ejecutivo IA</span>
-              <span className="text-xs text-green-400">Listo</span>
-            </div>
-            <p className="text-xs text-gray-400">12 páginas · PDF · Generado ayer</p>
-          </div>
-          <div className="p-4 bg-[#0d1424] rounded-lg border border-cyan-500/30">
-            <div className="flex items-center justify-between mb-2">
-              <span className="text-sm font-medium text-white">NIST CSF 2.0</span>
-              <span className="text-xs text-cyan-400 animate-pulse">Generando...</span>
-            </div>
-            <p className="text-xs text-gray-400">En proceso · estimado 5 min</p>
-          </div>
-        </div>
+        ) : (
+          <p className="text-sm text-gray-400 py-4">
+            Aún no hay organizaciones con datos. Ejecuta un diagnóstico primero.
+          </p>
+        )}
       </div>
 
-      <div className="bg-[#111c32] border border-white/10 rounded-xl p-6">
-        <div className="flex items-center gap-3 mb-4">
-          <div className="w-10 h-10 rounded-lg bg-blue-500/20 flex items-center justify-center">
-            <TrendingUp className="w-5 h-5 text-blue-400" />
+      {/* Resultado */}
+      {report && (
+        <div className="space-y-4">
+          <div className={`p-5 rounded-xl border flex items-center justify-between ${riskColors[report.risk_level] || 'text-gray-400 bg-gray-500/10 border-gray-500/20'}`}>
+            <div>
+              <p className="text-xs uppercase opacity-70">Nivel de riesgo</p>
+              <p className="text-2xl font-bold uppercase">{report.risk_level}</p>
+            </div>
+            <div className="flex items-center gap-3">
+              <span className="flex items-center gap-1.5 text-xs opacity-80">
+                <Cpu className="w-3.5 h-3.5" />
+                {report.generated_by === 'mimo' ? `IA · ${report.model}` : 'Plantilla determinista'}
+              </span>
+              <button
+                onClick={downloadPdf}
+                disabled={downloading}
+                className="flex items-center gap-2 px-3 py-2 rounded-lg bg-white/10 hover:bg-white/20 text-white text-sm transition-colors disabled:opacity-50"
+              >
+                <FileDown className="w-4 h-4" />
+                {downloading ? 'Generando PDF…' : 'Descargar PDF'}
+              </button>
+            </div>
           </div>
-          <div>
-            <h3 className="font-semibold text-white">Métricas de IA</h3>
-            <p className="text-xs text-gray-400">Rendimiento de los modelos</p>
+
+          <div className="bg-[#111c32] border border-white/10 rounded-xl p-6">
+            <h3 className="text-sm font-semibold text-cyan-400 mb-2 flex items-center gap-2">
+              <Shield className="w-4 h-4" /> Resumen ejecutivo
+            </h3>
+            <p className="text-sm text-gray-300 leading-relaxed">{report.executive_summary}</p>
           </div>
+
+          {report.key_risks.length > 0 && (
+            <div className="bg-[#111c32] border border-white/10 rounded-xl p-6">
+              <h3 className="text-sm font-semibold text-orange-400 mb-3 flex items-center gap-2">
+                <AlertTriangle className="w-4 h-4" /> Riesgos principales
+              </h3>
+              <ul className="space-y-2">
+                {report.key_risks.map((risk, i) => (
+                  <li key={i} className="flex items-start gap-2 text-sm text-gray-300">
+                    <span className="text-orange-400 mt-0.5">•</span>
+                    {risk}
+                  </li>
+                ))}
+              </ul>
+            </div>
+          )}
+
+          {report.remediation_plan.length > 0 && (
+            <div className="bg-[#111c32] border border-white/10 rounded-xl p-6">
+              <h3 className="text-sm font-semibold text-green-400 mb-3 flex items-center gap-2">
+                <CheckCircle2 className="w-4 h-4" /> Plan de remediación priorizado
+              </h3>
+              <ol className="space-y-2">
+                {report.remediation_plan.map((step, i) => (
+                  <li key={i} className="flex items-start gap-3 text-sm text-gray-300">
+                    <span className="flex-shrink-0 w-5 h-5 rounded-full bg-green-500/20 text-green-400 text-xs flex items-center justify-center font-semibold">
+                      {i + 1}
+                    </span>
+                    {step}
+                  </li>
+                ))}
+              </ol>
+            </div>
+          )}
         </div>
-        <div className="grid grid-cols-2 md:grid-cols-4 gap-4">
-          <div className="p-3 bg-[#0d1424] rounded-lg border border-white/5 text-center">
-            <p className="text-2xl font-bold text-cyan-400">87%</p>
-            <p className="text-xs text-gray-400 mt-1">Precisión predicciones</p>
-          </div>
-          <div className="p-3 bg-[#0d1424] rounded-lg border border-white/5 text-center">
-            <p className="text-2xl font-bold text-green-400">2.3s</p>
-            <p className="text-xs text-gray-400 mt-1">Tiempo respuesta IA</p>
-          </div>
-          <div className="p-3 bg-[#0d1424] rounded-lg border border-white/5 text-center">
-            <p className="text-2xl font-bold text-purple-400">1,247</p>
-            <p className="text-xs text-gray-400 mt-1">Análisis este mes</p>
-          </div>
-          <div className="p-3 bg-[#0d1424] rounded-lg border border-white/5 text-center">
-            <p className="text-2xl font-bold text-orange-400">Q245K</p>
-            <p className="text-xs text-gray-400 mt-1">Ahorro estimado</p>
-          </div>
-        </div>
-      </div>
+      )}
+
+      {!report && !loading && organizations.length > 0 && (
+        <EmptyState
+          type="security"
+          title="Sin informe generado"
+          description="Selecciona una organización y genera su informe ejecutivo con los hallazgos reales del diagnóstico."
+        />
+      )}
     </div>
   )
 }

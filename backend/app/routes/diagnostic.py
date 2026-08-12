@@ -19,11 +19,13 @@ from app.core import audit
 from app.core.config import settings
 from app.core.database import get_db
 from app.core.deps import client_ip, get_current_user
+from app.core.ratelimit import limiter
 from app.models.asset import Asset, AssetCriticality, AssetStatus, AssetType
 from app.models.compliance import ComplianceControl, ComplianceStatus
 from app.models.incident import Incident, IncidentSeverity, IncidentStatus
 from app.models.user import User
 from app.models.vulnerability import FindingType, Severity, Vulnerability, VulnStatus
+from app.services import compliance_map
 from app.services.nmap_scanner import NetworkScanner
 
 logger = logging.getLogger(__name__)
@@ -108,41 +110,42 @@ class DiagnosticResult(BaseModel):
 
 
 @router.post("/run", response_model=DiagnosticResult)
+@limiter.limit("6/minute")
 def run_diagnostic(
-    request: DiagnosticRequest,
-    http_request: Request,
+    body: DiagnosticRequest,
+    request: Request,
     db: Session = Depends(get_db),
     user: User = Depends(get_current_user),
 ):
-    if len(request.assets) > settings.SCAN_MAX_ASSETS:
+    if len(body.assets) > settings.SCAN_MAX_ASSETS:
         audit.record(
             db, audit.DIAGNOSTIC_REJECTED, user_id=user.id,
-            resource=request.organization_name,
-            details=f"{len(request.assets)} activos solicitados",
-            ip_address=client_ip(http_request),
+            resource=body.organization_name,
+            details=f"{len(body.assets)} activos solicitados",
+            ip_address=client_ip(request),
         )
         raise HTTPException(
             status_code=400,
-            detail=f"Máximo {settings.SCAN_MAX_ASSETS} activos por diagnóstico; se recibieron {len(request.assets)}.",
+            detail=f"Máximo {settings.SCAN_MAX_ASSETS} activos por diagnóstico; se recibieron {len(body.assets)}.",
         )
 
     try:
-        result = _execute(request, db, user)
+        result = _execute(body, db, user)
     except HTTPException:
         raise
     except Exception as exc:
         db.rollback()
-        logger.exception("Fallo el diagnóstico de %s", request.organization_name)
+        logger.exception("Fallo el diagnóstico de %s", body.organization_name)
         raise HTTPException(status_code=500, detail=f"Error en el diagnóstico: {exc}") from exc
 
     audit.record(
         db, audit.DIAGNOSTIC_RUN, user_id=user.id,
-        resource=request.organization_name,
+        resource=body.organization_name,
         details=(
             f"{result.assets_created} activos, {result.vulnerabilities_found} hallazgos, "
             f"riesgo {result.risk_level}"
         ),
-        ip_address=client_ip(http_request),
+        ip_address=client_ip(request),
     )
     return result
 
@@ -181,11 +184,17 @@ def _execute(request: DiagnosticRequest, db: Session, user: User) -> DiagnosticR
         )
 
     risk_level = _risk_level(actionable)
-    compliance_score, compliance_detail = _compliance_baseline(db)
-    if compliance_detail:
+    all_findings = _flatten(findings_by_asset)
+    compliance_assessed, compliance_score, compliance_detail = _compliance(db, all_findings)
+    if compliance_assessed:
         notes.append(
-            "Los controles de cumplimiento son el marco de referencia cargado en la plataforma; "
-            "todavía no constituyen una evaluación de esta organización."
+            "El cumplimiento se evaluó a partir de los hallazgos reales de este diagnóstico. "
+            "Es una comprobación externa de controles verificables, no una auditoría completa."
+        )
+    elif compliance_detail:
+        notes.append(
+            "No se observaron servicios suficientes para evaluar cumplimiento; se muestra el "
+            "marco de referencia cargado en la plataforma."
         )
 
     summary = (
@@ -202,7 +211,7 @@ def _execute(request: DiagnosticRequest, db: Session, user: User) -> DiagnosticR
         vulnerabilities_found=len(actionable),
         incidents_created=len(incidents),
         compliance_score=compliance_score,
-        compliance_assessed=False,
+        compliance_assessed=compliance_assessed,
         risk_level=risk_level,
         summary=summary,
         notes=notes,
@@ -405,6 +414,18 @@ def _risk_level(actionable: List[Vulnerability]) -> str:
     if high >= 1 or medium >= 3:
         return "medio"
     return "bajo"
+
+
+def _compliance(db: Session, findings: List[Dict[str, Any]]) -> tuple[bool, float, List[ComplianceDetail]]:
+    """Evalúa cumplimiento con los hallazgos reales cuando se observaron servicios;
+    si no, devuelve el marco de referencia cargado en la plataforma."""
+    observed = any(f.get("finding_type") in ("exposure", "ssl", "cve") for f in findings)
+    if observed:
+        assessment = compliance_map.assess(findings)
+        detail = [ComplianceDetail(**c) for c in assessment]
+        return True, compliance_map.score(assessment), detail
+    baseline_score, baseline_detail = _compliance_baseline(db)
+    return False, baseline_score, baseline_detail
 
 
 def _compliance_baseline(db: Session) -> tuple[float, List[ComplianceDetail]]:

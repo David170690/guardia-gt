@@ -30,6 +30,8 @@ class UserAdminUpdate(UserBase):
 class UserLogin(BaseModel):
     email: EmailStr
     password: str
+    # Código TOTP de seis dígitos, solo requerido si la cuenta tiene MFA activo.
+    code: Optional[str] = None
 
 
 class UserResponse(UserBase):

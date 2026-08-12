@@ -30,8 +30,8 @@ api.interceptors.response.use(
 )
 
 export const authAPI = {
-  login: (email: string, password: string) =>
-    api.post('/api/auth/login', { email, password }),
+  login: (email: string, password: string, code?: string) =>
+    api.post('/api/auth/login', { email, password, ...(code ? { code } : {}) }),
   register: (data: { email: string; full_name: string; password: string }) =>
     api.post('/api/auth/register', data),
   getMe: () => api.get('/api/auth/me'),
@@ -81,6 +81,21 @@ export const incidentsAPI = {
 export const reportsAPI = {
   list: () => api.get('/api/reports/'),
   getTrends: () => api.get('/api/reports/trends'),
+  // Devuelven el archivo como blob para descargarlo en el navegador.
+  exportCsv: (type: string, organization?: string) =>
+    api.get(`/api/reports/export/${type}`, {
+      params: organization ? { organization } : undefined,
+      responseType: 'blob',
+    }),
+  exportPdf: (organization: string) =>
+    api.get('/api/reports/pdf', { params: { organization }, responseType: 'blob' }),
+}
+
+export const aiAPI = {
+  getStatus: () => api.get('/api/ai/status'),
+  listOrganizations: () => api.get('/api/ai/organizations'),
+  generateReport: (organization: string) =>
+    api.post('/api/ai/report', { organization }),
 }
 
 export const usersAPI = {
@@ -100,6 +115,9 @@ export const settingsAPI = {
   updateProfile: (data: any) => api.put('/api/settings/profile', data),
   changePassword: (data: any) => api.put('/api/settings/password', data),
   getSystem: () => api.get('/api/settings/system'),
+  mfaSetup: () => api.post('/api/settings/mfa/setup'),
+  mfaEnable: (code: string) => api.post('/api/settings/mfa/enable', { code }),
+  mfaDisable: (password: string) => api.post('/api/settings/mfa/disable', { password }),
 }
 
 export default api

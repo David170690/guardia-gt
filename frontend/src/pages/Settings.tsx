@@ -1,21 +1,58 @@
 import { useState, useEffect } from 'react'
 import { settingsAPI } from '../services/api'
-import { Settings, User, Lock, Save, Server, Bell } from 'lucide-react'
+import { Settings, User, Lock, Save, Server, ShieldCheck } from 'lucide-react'
 import toast from 'react-hot-toast'
 import { useAuth } from '../context/AuthContext'
 import DataNote from '../components/DataNote'
 
 export default function SettingsPage() {
-  const { user } = useAuth()
-  const [tab, setTab] = useState<'profile' | 'password' | 'system'>('profile')
+  const { user, checkAuth } = useAuth()
+  const [tab, setTab] = useState<'profile' | 'password' | 'mfa' | 'system'>('profile')
   const [profile, setProfile] = useState({ full_name: '', email: '' })
   const [passwords, setPasswords] = useState({ current_password: '', new_password: '', confirm_password: '' })
   const [system, setSystem] = useState<any>(null)
+
+  // MFA
+  const [mfaSetup, setMfaSetup] = useState<{ qr_data_uri: string; secret: string } | null>(null)
+  const [mfaCode, setMfaCode] = useState('')
+  const [disablePassword, setDisablePassword] = useState('')
 
   useEffect(() => {
     if (user) setProfile({ full_name: user.full_name || '', email: user.email || '' })
     loadSystem()
   }, [user])
+
+  const startMfaSetup = async () => {
+    try {
+      const res = await settingsAPI.mfaSetup()
+      setMfaSetup(res.data)
+    } catch (err: any) {
+      toast.error(err.response?.data?.detail || 'No se pudo iniciar la configuración de MFA')
+    }
+  }
+
+  const enableMfa = async () => {
+    try {
+      await settingsAPI.mfaEnable(mfaCode)
+      toast.success('MFA activado')
+      setMfaSetup(null)
+      setMfaCode('')
+      await checkAuth()
+    } catch (err: any) {
+      toast.error(err.response?.data?.detail || 'Código incorrecto')
+    }
+  }
+
+  const disableMfa = async () => {
+    try {
+      await settingsAPI.mfaDisable(disablePassword)
+      toast.success('MFA desactivado')
+      setDisablePassword('')
+      await checkAuth()
+    } catch (err: any) {
+      toast.error(err.response?.data?.detail || 'No se pudo desactivar')
+    }
+  }
 
   const loadSystem = async () => {
     try {
@@ -38,8 +75,8 @@ export default function SettingsPage() {
       toast.error('Las contraseñas no coinciden')
       return
     }
-    if (passwords.new_password.length < 6) {
-      toast.error('La contraseña debe tener al menos 6 caracteres')
+    if (passwords.new_password.length < 8) {
+      toast.error('La contraseña debe tener al menos 8 caracteres')
       return
     }
     try {
@@ -54,6 +91,7 @@ export default function SettingsPage() {
   const tabs = [
     { key: 'profile', label: 'Perfil', icon: User },
     { key: 'password', label: 'Contraseña', icon: Lock },
+    { key: 'mfa', label: 'Doble factor', icon: ShieldCheck },
     { key: 'system', label: 'Sistema', icon: Server },
   ]
 
@@ -117,6 +155,99 @@ export default function SettingsPage() {
               Actualizar Contraseña
             </button>
           </div>
+        </div>
+      )}
+
+      {tab === 'mfa' && (
+        <div className="bg-[#111c32] border border-white/5 rounded-xl p-6 max-w-lg space-y-4">
+          <div>
+            <h2 className="text-lg font-semibold text-white">Autenticación de doble factor</h2>
+            <p className="text-sm text-gray-400 mt-1">
+              Estado actual:{' '}
+              <span className={user?.mfa_enabled ? 'text-green-400 font-medium' : 'text-yellow-400 font-medium'}>
+                {user?.mfa_enabled ? 'Activado' : 'Desactivado'}
+              </span>
+            </p>
+          </div>
+
+          {!user?.mfa_enabled && !mfaSetup && (
+            <>
+              <DataNote tone="info">
+                Añade una segunda capa de seguridad con una app como Google Authenticator o Authy.
+                Al iniciar sesión se pedirá un código de seis dígitos además de tu contraseña.
+              </DataNote>
+              <button
+                onClick={startMfaSetup}
+                className="flex items-center gap-2 px-5 py-2.5 bg-gradient-to-r from-cyan-500 to-blue-500 text-white font-medium rounded-lg hover:from-cyan-600 hover:to-blue-600 transition-all"
+              >
+                <ShieldCheck className="w-4 h-4" />
+                Activar doble factor
+              </button>
+            </>
+          )}
+
+          {!user?.mfa_enabled && mfaSetup && (
+            <div className="space-y-4">
+              <p className="text-sm text-gray-300">
+                1. Escanea este código QR con tu app de autenticación:
+              </p>
+              <div className="bg-white p-3 rounded-lg w-fit">
+                <img src={mfaSetup.qr_data_uri} alt="Código QR de MFA" className="w-44 h-44" />
+              </div>
+              <p className="text-xs text-gray-500">
+                ¿No puedes escanear? Ingresa la clave manualmente:{' '}
+                <span className="font-mono text-gray-300 break-all">{mfaSetup.secret}</span>
+              </p>
+              <div>
+                <label className="block text-sm text-gray-300 mb-1">2. Ingresa el código de seis dígitos</label>
+                <input
+                  type="text"
+                  inputMode="numeric"
+                  value={mfaCode}
+                  onChange={(e) => setMfaCode(e.target.value.replace(/\D/g, '').slice(0, 6))}
+                  className="w-full px-4 py-2.5 bg-[#0d1424] border border-white/10 rounded-lg text-white tracking-widest focus:outline-none focus:ring-2 focus:ring-cyan-500/50"
+                  placeholder="000000"
+                />
+              </div>
+              <div className="flex gap-2">
+                <button
+                  onClick={enableMfa}
+                  className="px-5 py-2.5 bg-gradient-to-r from-cyan-500 to-blue-500 text-white font-medium rounded-lg hover:from-cyan-600 hover:to-blue-600 transition-all"
+                >
+                  Confirmar y activar
+                </button>
+                <button
+                  onClick={() => { setMfaSetup(null); setMfaCode('') }}
+                  className="px-5 py-2.5 text-gray-400 hover:text-white rounded-lg transition-colors"
+                >
+                  Cancelar
+                </button>
+              </div>
+            </div>
+          )}
+
+          {user?.mfa_enabled && (
+            <div className="space-y-4">
+              <DataNote tone="info">
+                El doble factor está activo en tu cuenta. Para desactivarlo, confirma tu contraseña.
+              </DataNote>
+              <div>
+                <label className="block text-sm text-gray-300 mb-1">Contraseña actual</label>
+                <input
+                  type="password"
+                  value={disablePassword}
+                  onChange={(e) => setDisablePassword(e.target.value)}
+                  className="w-full px-4 py-2.5 bg-[#0d1424] border border-white/10 rounded-lg text-white focus:outline-none focus:ring-2 focus:ring-cyan-500/50"
+                />
+              </div>
+              <button
+                onClick={disableMfa}
+                className="px-5 py-2.5 bg-red-500/10 text-red-400 border border-red-500/20 font-medium rounded-lg hover:bg-red-500/20 transition-all"
+              >
+                Desactivar doble factor
+              </button>
+            </div>
+          )}
         </div>
       )}
 

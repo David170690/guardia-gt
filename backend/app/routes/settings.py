@@ -10,6 +10,7 @@ from app.core.database import get_db
 from app.core.deps import client_ip, get_current_user
 from app.core.security import get_password_hash, verify_password
 from app.models.user import User
+from app.services import mfa
 
 router = APIRouter()
 
@@ -22,6 +23,14 @@ class ProfileUpdate(BaseModel):
 class PasswordChange(BaseModel):
     current_password: str
     new_password: str = Field(min_length=8, max_length=128)
+
+
+class MFAEnable(BaseModel):
+    code: str = Field(min_length=6, max_length=10)
+
+
+class MFADisable(BaseModel):
+    password: str
 
 
 @router.get("/profile")
@@ -74,6 +83,55 @@ def change_password(
     audit.record(db, audit.PASSWORD_CHANGED, user_id=user.id, resource=user.email,
                  ip_address=client_ip(request))
     return {"message": "Contraseña actualizada"}
+
+
+@router.post("/mfa/setup")
+def mfa_setup(user: User = Depends(get_current_user), db: Session = Depends(get_db)):
+    """Genera un secreto TOTP y su código QR. Aún no activa el MFA:
+    hay que confirmar un código con /mfa/enable."""
+    secret = mfa.new_secret()
+    user.mfa_secret = secret
+    db.commit()
+    uri = mfa.provisioning_uri(secret, user.email)
+    return {
+        "secret": secret,
+        "otpauth_uri": uri,
+        "qr_data_uri": mfa.qr_data_uri(uri),
+        "note": "Escanea el QR con Google Authenticator y confirma un código para activarlo.",
+    }
+
+
+@router.post("/mfa/enable")
+def mfa_enable(
+    data: MFAEnable,
+    request: Request,
+    user: User = Depends(get_current_user),
+    db: Session = Depends(get_db),
+):
+    if not user.mfa_secret:
+        raise HTTPException(status_code=400, detail="Primero genera un secreto con /mfa/setup")
+    if not mfa.verify(user.mfa_secret, data.code):
+        raise HTTPException(status_code=400, detail="Código incorrecto. Verifica la hora de tu dispositivo.")
+    user.mfa_enabled = True
+    db.commit()
+    audit.record(db, "mfa.enabled", user_id=user.id, resource=user.email, ip_address=client_ip(request))
+    return {"message": "MFA activado", "mfa_enabled": True}
+
+
+@router.post("/mfa/disable")
+def mfa_disable(
+    data: MFADisable,
+    request: Request,
+    user: User = Depends(get_current_user),
+    db: Session = Depends(get_db),
+):
+    if not verify_password(data.password, user.hashed_password):
+        raise HTTPException(status_code=400, detail="Contraseña incorrecta")
+    user.mfa_enabled = False
+    user.mfa_secret = None
+    db.commit()
+    audit.record(db, "mfa.disabled", user_id=user.id, resource=user.email, ip_address=client_ip(request))
+    return {"message": "MFA desactivado", "mfa_enabled": False}
 
 
 @router.get("/system")
