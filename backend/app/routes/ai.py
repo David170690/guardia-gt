@@ -36,6 +36,7 @@ class ReportResponse(BaseModel):
     executive_summary: str
     key_risks: List[str]
     remediation_plan: List[str]
+    fallback_reason: Optional[str] = None
 
 
 @router.get("/status")

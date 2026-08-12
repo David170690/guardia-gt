@@ -41,6 +41,9 @@ class ExecutiveReport:
     key_risks: List[str] = field(default_factory=list)
     remediation_plan: List[str] = field(default_factory=list)
     model: Optional[str] = None
+    # Cuando había un modelo configurado pero la llamada falló, aquí queda el
+    # motivo, para poder diagnosticar por qué se usó la plantilla.
+    fallback_reason: Optional[str] = None
 
     def to_dict(self) -> Dict[str, Any]:
         return {
@@ -51,6 +54,7 @@ class ExecutiveReport:
             "executive_summary": self.executive_summary,
             "key_risks": self.key_risks,
             "remediation_plan": self.remediation_plan,
+            "fallback_reason": self.fallback_reason,
         }
 
 
@@ -85,12 +89,25 @@ def generate_report(
     assets_total: int,
 ) -> ExecutiveReport:
     """Punto de entrada. Intenta el modelo y cae a la plantilla ante cualquier fallo."""
+    fallback_reason = None
     if ai_enabled():
         try:
             return _generate_with_model(organization, risk_level, findings, assets_scanned, assets_total)
-        except Exception as exc:  # la caída a plantilla nunca deja al usuario sin informe
-            logger.warning("El modelo de IA falló (%s); se usa la plantilla determinista", exc)
-    return _generate_with_template(organization, risk_level, findings, assets_scanned, assets_total)
+        except httpx.HTTPStatusError as exc:  # respuesta de error del proveedor
+            body = ""
+            try:
+                body = exc.response.text[:300]
+            except Exception:
+                pass
+            fallback_reason = f"HTTP {exc.response.status_code} del proveedor: {body}"
+            logger.warning("El modelo de IA respondió con error; se usa la plantilla. %s", fallback_reason)
+        except Exception as exc:  # timeout, red, parseo… la plantilla nunca deja sin informe
+            fallback_reason = f"{type(exc).__name__}: {exc}"
+            logger.warning("El modelo de IA falló (%s); se usa la plantilla determinista", fallback_reason)
+
+    report = _generate_with_template(organization, risk_level, findings, assets_scanned, assets_total)
+    report.fallback_reason = fallback_reason
+    return report
 
 
 # ---------------------------------------------------------------- modo modelo
