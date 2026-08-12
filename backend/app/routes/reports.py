@@ -236,7 +236,8 @@ def export_pdf(organization: str, db: Session = Depends(get_db)):
         assets_scanned=sum(1 for a in assets if a.ip_address), assets_total=len(assets),
     )
 
-    pdf_bytes = _build_pdf(organization, risk, report, actionable)
+    pdf_bytes = _build_pdf(organization, risk, report, actionable,
+                           scanned=sum(1 for a in assets if a.ip_address), total=len(assets))
     return Response(
         content=pdf_bytes, media_type="application/pdf",
         headers={"Content-Disposition": f'attachment; filename="informe_{_slug(organization)}.pdf"'},
@@ -247,74 +248,189 @@ def _slug(text: str) -> str:
     return "".join(c if c.isalnum() else "_" for c in text.lower())[:40]
 
 
-def _build_pdf(organization, risk, report, actionable) -> bytes:
+# Paleta compartida con la interfaz web, para que el PDF se vea de la misma familia.
+_PDF_ACCENT = "#0e6a72"
+_PDF_INK = "#1a2230"
+_PDF_MUTED = "#5a6474"
+_RISK_HEX = {"crítico": "#b5271f", "alto": "#c2680a", "medio": "#a07c08", "bajo": "#15803d"}
+_SEV_HEX = {"critical": "#b5271f", "high": "#c2680a", "medium": "#a07c08", "low": "#15803d", "info": "#5a6474"}
+_SEV_LABEL = {"critical": "Crítico", "high": "Alto", "medium": "Medio", "low": "Bajo", "info": "Info"}
+
+
+def _esc(text) -> str:
+    """Escapa el texto dinámico para los Paragraph de reportlab."""
+    from xml.sax.saxutils import escape
+    return escape(str(text if text is not None else ""))
+
+
+def _build_pdf(organization, risk, report, actionable, scanned=0, total=0) -> bytes:
     from reportlab.lib import colors
-    from reportlab.lib.enums import TA_LEFT
+    from reportlab.lib.enums import TA_CENTER, TA_LEFT
     from reportlab.lib.pagesizes import A4
     from reportlab.lib.styles import ParagraphStyle, getSampleStyleSheet
-    from reportlab.lib.units import cm
-    from reportlab.platypus import (Paragraph, SimpleDocTemplate, Spacer, Table,
-                                    TableStyle)
+    from reportlab.lib.units import cm, mm
+    from reportlab.platypus import (HRFlowable, KeepTogether, Paragraph,
+                                    SimpleDocTemplate, Spacer, Table, TableStyle)
 
-    buffer = io.BytesIO()
-    doc = SimpleDocTemplate(buffer, pagesize=A4, topMargin=2 * cm, bottomMargin=2 * cm,
-                            leftMargin=2 * cm, rightMargin=2 * cm, title=f"Informe {organization}")
+    accent = colors.HexColor(_PDF_ACCENT)
+    ink = colors.HexColor(_PDF_INK)
+    muted = colors.HexColor(_PDF_MUTED)
+    risk_hex = colors.HexColor(_RISK_HEX.get(risk, "#333333"))
+
     styles = getSampleStyleSheet()
-    accent = colors.HexColor("#0e6a72")
-    h1 = ParagraphStyle("gh1", parent=styles["Title"], textColor=accent, fontSize=20, spaceAfter=6)
-    h2 = ParagraphStyle("gh2", parent=styles["Heading2"], textColor=accent, fontSize=13,
-                        spaceBefore=14, spaceAfter=6)
-    body = ParagraphStyle("gbody", parent=styles["BodyText"], fontSize=10, leading=15, alignment=TA_LEFT)
-    small = ParagraphStyle("gsmall", parent=body, fontSize=8, textColor=colors.grey)
+    st_summary = ParagraphStyle("gsum", parent=styles["BodyText"], fontSize=10.5, leading=16,
+                                textColor=ink, alignment=TA_LEFT, spaceAfter=2)
+    st_body = ParagraphStyle("gbody", parent=styles["BodyText"], fontSize=10, leading=15,
+                             textColor=ink, alignment=TA_LEFT)
+    st_bullet = ParagraphStyle("gbul", parent=st_body, leftIndent=14, spaceAfter=4,
+                               bulletIndent=2)
+    st_step = ParagraphStyle("gstep", parent=st_body, leftIndent=20, spaceAfter=5)
+    st_small = ParagraphStyle("gsmall", parent=st_body, fontSize=8, textColor=muted)
 
-    risk_color = {"crítico": "#b5271f", "alto": "#9a5b06", "medio": "#7d6209", "bajo": "#15803d"}
-    elements = []
-    elements.append(Paragraph("GuardIA GT — Informe Ejecutivo de Seguridad", h1))
-    elements.append(Paragraph(f"Organización: <b>{organization}</b>", body))
-    modo = f"IA ({report.model})" if report.generated_by == "mimo" else "plantilla determinista"
-    elements.append(Paragraph(
-        f'Nivel de riesgo: <b><font color="{risk_color.get(risk, "#333333")}">{risk.upper()}</font></b> · '
-        f'Generado el {datetime.now(timezone.utc).strftime("%d/%m/%Y")} · Redacción: {modo}',
-        small))
+    def section(title: str):
+        return [
+            Spacer(1, 5 * mm),
+            Paragraph(f'<b>{_esc(title)}</b>',
+                      ParagraphStyle("gh", parent=styles["Heading2"], fontSize=12.5,
+                                     textColor=accent, spaceAfter=3)),
+            HRFlowable(width="100%", thickness=1.2, color=accent, spaceAfter=7),
+        ]
 
-    elements.append(Paragraph("Resumen ejecutivo", h2))
-    elements.append(Paragraph(report.executive_summary, body))
+    # ---- banda de marca ----
+    brand = Table([[
+        Paragraph('<font size="17"><b>GuardIA GT</b></font><br/>'
+                  '<font size="10">Informe Ejecutivo de Seguridad</font>',
+                  ParagraphStyle("gbrand", parent=styles["Normal"], textColor=colors.white, leading=20)),
+        Paragraph('<font size="9">Ciberseguridad<br/>con IA</font>',
+                  ParagraphStyle("gshield", parent=styles["Normal"], textColor=colors.HexColor("#8fd6d0"),
+                                 alignment=2, leading=12)),
+    ]], colWidths=[13 * cm, 4 * cm])
+    brand.setStyle(TableStyle([
+        ("BACKGROUND", (0, 0), (-1, -1), accent),
+        ("VALIGN", (0, 0), (-1, -1), "MIDDLE"),
+        ("LEFTPADDING", (0, 0), (0, 0), 14), ("TOPPADDING", (0, 0), (-1, -1), 12),
+        ("BOTTOMPADDING", (0, 0), (-1, -1), 12), ("RIGHTPADDING", (-1, 0), (-1, 0), 14),
+    ]))
 
+    # ---- tira de KPIs ----
+    def kpi(value, label, value_color=ink):
+        return Paragraph(
+            f'<font size="18" color="{value_color.hexval() if hasattr(value_color, "hexval") else value_color}">'
+            f'<b>{_esc(value)}</b></font><br/>'
+            f'<font size="8" color="{_PDF_MUTED}">{_esc(label)}</font>',
+            ParagraphStyle("gkpi", parent=styles["Normal"], alignment=TA_CENTER, leading=22))
+
+    n_crit = sum(1 for v in actionable if v.severity.value == "critical")
+    n_high = sum(1 for v in actionable if v.severity.value == "high")
+    kpis = Table([[
+        kpi(risk.upper(), "Nivel de riesgo", risk_hex),
+        kpi(f"{scanned}/{total}", "Activos escaneados"),
+        kpi(str(len(actionable)), "Hallazgos accionables", colors.HexColor("#c2680a") if actionable else ink),
+        kpi(f"{n_crit}·{n_high}", "Críticos · Altos"),
+    ]], colWidths=[4.25 * cm] * 4)
+    kpis.setStyle(TableStyle([
+        ("BACKGROUND", (0, 0), (-1, -1), colors.HexColor("#f4f6f8")),
+        ("BOX", (0, 0), (-1, -1), 0.6, colors.HexColor("#dde2e8")),
+        ("LINEAFTER", (0, 0), (-2, -1), 0.6, colors.HexColor("#dde2e8")),
+        ("VALIGN", (0, 0), (-1, -1), "MIDDLE"),
+        ("TOPPADDING", (0, 0), (-1, -1), 10), ("BOTTOMPADDING", (0, 0), (-1, -1), 10),
+    ]))
+
+    modo = f"Redacción con IA · {report.model}" if report.generated_by == "mimo" \
+        else "Redacción con plantilla determinista"
+    meta = Paragraph(
+        f'Organización: <b>{_esc(organization)}</b>  ·  '
+        f'Generado el {datetime.now(timezone.utc).strftime("%d/%m/%Y")}  ·  {_esc(modo)}',
+        st_small)
+
+    elements = [brand, Spacer(1, 4 * mm), meta, Spacer(1, 5 * mm), kpis]
+
+    # ---- resumen ----
+    elements += section("Resumen ejecutivo")
+    summary_box = Table([[Paragraph(_esc(report.executive_summary), st_summary)]], colWidths=[17 * cm])
+    summary_box.setStyle(TableStyle([
+        ("BACKGROUND", (0, 0), (-1, -1), colors.HexColor("#eef5f5")),
+        ("LINEBEFORE", (0, 0), (0, -1), 3, accent),
+        ("LEFTPADDING", (0, 0), (-1, -1), 12), ("RIGHTPADDING", (0, 0), (-1, -1), 12),
+        ("TOPPADDING", (0, 0), (-1, -1), 10), ("BOTTOMPADDING", (0, 0), (-1, -1), 10),
+    ]))
+    elements.append(summary_box)
+
+    # ---- riesgos ----
     if report.key_risks:
-        elements.append(Paragraph("Riesgos principales", h2))
+        block = section("Riesgos principales")
         for r in report.key_risks:
-            elements.append(Paragraph(f"• {r}", body))
+            block.append(Paragraph(f'<font color="{_PDF_ACCENT}">▪</font>&nbsp; {_esc(r)}', st_bullet))
+        elements.append(KeepTogether(block))
 
+    # ---- plan ----
     if report.remediation_plan:
-        elements.append(Paragraph("Plan de remediación priorizado", h2))
+        block = section("Plan de remediación priorizado")
         for i, step in enumerate(report.remediation_plan, 1):
-            elements.append(Paragraph(f"{i}. {step}", body))
+            block.append(Paragraph(
+                f'<font color="{_PDF_ACCENT}"><b>{i}.</b></font>&nbsp; {_esc(step)}', st_step))
+        elements.append(KeepTogether(block))
 
-    elements.append(Paragraph("Hallazgos accionables", h2))
+    # ---- hallazgos ----
+    elements += section("Hallazgos accionables")
     if actionable:
-        data = [["Sev.", "CVSS", "Hallazgo", "Componente"]]
+        data = [["Severidad", "CVSS", "Hallazgo", "Componente"]]
         for v in actionable[:30]:
-            data.append([v.severity.value, f"{v.cvss_score}", v.title[:48], (v.affected_component or "")[:28]])
-        table = Table(data, colWidths=[1.6 * cm, 1.4 * cm, 8.5 * cm, 5 * cm])
+            sev = v.severity.value
+            data.append([
+                Paragraph(f'<font color="{_SEV_HEX.get(sev, "#333")}"><b>{_SEV_LABEL.get(sev, sev)}</b></font>',
+                          st_small),
+                Paragraph(f"{v.cvss_score}", st_small),
+                Paragraph(_esc(v.title), st_small),
+                Paragraph(_esc(v.affected_component or "—"), st_small),
+            ])
+        table = Table(data, colWidths=[2.2 * cm, 1.4 * cm, 8.4 * cm, 5 * cm], repeatRows=1)
         table.setStyle(TableStyle([
             ("BACKGROUND", (0, 0), (-1, 0), accent),
             ("TEXTCOLOR", (0, 0), (-1, 0), colors.white),
-            ("FONTSIZE", (0, 0), (-1, -1), 8),
             ("FONTNAME", (0, 0), (-1, 0), "Helvetica-Bold"),
-            ("ROWBACKGROUNDS", (0, 1), (-1, -1), [colors.white, colors.HexColor("#f2f4f7")]),
-            ("GRID", (0, 0), (-1, -1), 0.4, colors.HexColor("#d0d5dd")),
+            ("FONTSIZE", (0, 0), (-1, 0), 8.5),
+            ("ROWBACKGROUNDS", (0, 1), (-1, -1), [colors.white, colors.HexColor("#f4f6f8")]),
+            ("LINEBELOW", (0, 0), (-1, -1), 0.4, colors.HexColor("#e2e6ec")),
             ("VALIGN", (0, 0), (-1, -1), "MIDDLE"),
-            ("TOPPADDING", (0, 0), (-1, -1), 4),
-            ("BOTTOMPADDING", (0, 0), (-1, -1), 4),
+            ("TOPPADDING", (0, 0), (-1, -1), 6), ("BOTTOMPADDING", (0, 0), (-1, -1), 6),
+            ("LEFTPADDING", (0, 0), (-1, -1), 8),
         ]))
         elements.append(table)
+        if len(actionable) > 30:
+            elements.append(Spacer(1, 2 * mm))
+            elements.append(Paragraph(f"… y {len(actionable) - 30} hallazgos más.", st_small))
     else:
-        elements.append(Paragraph("No se identificaron hallazgos accionables en este diagnóstico.", body))
+        ok = Table([[Paragraph(
+            '<font color="#15803d"><b>✓ Sin hallazgos accionables.</b></font>&nbsp; '
+            'El diagnóstico no identificó exposiciones que requieran acción inmediata.',
+            st_body)]], colWidths=[17 * cm])
+        ok.setStyle(TableStyle([
+            ("BACKGROUND", (0, 0), (-1, -1), colors.HexColor("#e9f5ee")),
+            ("LINEBEFORE", (0, 0), (0, -1), 3, colors.HexColor("#15803d")),
+            ("LEFTPADDING", (0, 0), (-1, -1), 12), ("RIGHTPADDING", (0, 0), (-1, -1), 12),
+            ("TOPPADDING", (0, 0), (-1, -1), 10), ("BOTTOMPADDING", (0, 0), (-1, -1), 10),
+        ]))
+        elements.append(ok)
 
-    elements.append(Spacer(1, 0.8 * cm))
-    elements.append(Paragraph(
-        "Documento generado por GuardIA GT a partir de los datos reales del diagnóstico. "
-        "Universidad Mariano Gálvez de Guatemala.", small))
+    def _decorate(canvas, doc_):
+        canvas.saveState()
+        # Barra de acento superior.
+        canvas.setFillColor(accent)
+        canvas.rect(0, A4[1] - 4 * mm, A4[0], 4 * mm, stroke=0, fill=1)
+        # Pie con línea, confidencialidad y número de página.
+        canvas.setStrokeColor(colors.HexColor("#dde2e8"))
+        canvas.setLineWidth(0.5)
+        canvas.line(2 * cm, 1.5 * cm, A4[0] - 2 * cm, 1.5 * cm)
+        canvas.setFont("Helvetica", 7.5)
+        canvas.setFillColor(muted)
+        canvas.drawString(2 * cm, 1.05 * cm,
+                          "GuardIA GT · Documento confidencial · Universidad Mariano Gálvez de Guatemala")
+        canvas.drawRightString(A4[0] - 2 * cm, 1.05 * cm, f"Página {doc_.page}")
+        canvas.restoreState()
 
-    doc.build(elements)
+    buffer = io.BytesIO()
+    doc = SimpleDocTemplate(buffer, pagesize=A4, topMargin=1.6 * cm, bottomMargin=2.2 * cm,
+                            leftMargin=2 * cm, rightMargin=2 * cm, title=f"Informe {organization}")
+    doc.build(elements, onFirstPage=_decorate, onLaterPages=_decorate)
     return buffer.getvalue()

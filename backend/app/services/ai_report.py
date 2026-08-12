@@ -134,6 +134,10 @@ SYSTEM_PROMPT = (
 
 
 def _generate_with_model(organization, risk_level, findings, assets_scanned, assets_total) -> ExecutiveReport:
+    # No se envía `response_format`: varios modelos abiertos gratuitos de OpenRouter
+    # (MiMo entre ellos) rechazan la petición si se pide json_object, y eso hacía que
+    # el informe cayera siempre a la plantilla. El prompt ya exige JSON y
+    # `_parse_model_json` sabe extraerlo aunque venga envuelto en texto o ```json.
     payload = {
         "model": settings.AI_MODEL,
         "messages": [
@@ -142,7 +146,6 @@ def _generate_with_model(organization, risk_level, findings, assets_scanned, ass
         ],
         "temperature": 0.2,
         "max_tokens": settings.AI_MAX_TOKENS,
-        "response_format": {"type": "json_object"},
     }
     headers = {
         "Authorization": f"Bearer {settings.AI_API_KEY}",
