@@ -28,8 +28,8 @@ class Settings(BaseSettings):
     # plantilla determinista sobre los hallazgos reales: nunca se inventan datos.
     AI_API_KEY: str = ""
     AI_BASE_URL: str = "https://openrouter.ai/api/v1"
-    # Ajusta al slug exacto del proveedor. Ejemplo de modelo libre en OpenRouter.
-    AI_MODEL: str = "xiaomi/mimo-v2.5:free"
+    # Ajusta al slug exacto del proveedor. Modelo libre de MiMo en OpenRouter.
+    AI_MODEL: str = "xiaomi/mimo-v2-flash:free"
     AI_TIMEOUT_SECONDS: float = 45.0
     AI_MAX_TOKENS: int = 1200
 
