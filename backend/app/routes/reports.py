@@ -336,7 +336,7 @@ def _build_pdf(organization, risk, report, actionable, scanned=0, total=0) -> by
         ("TOPPADDING", (0, 0), (-1, -1), 10), ("BOTTOMPADDING", (0, 0), (-1, -1), 10),
     ]))
 
-    modo = f"Redacción con IA · {report.model}" if report.generated_by == "mimo" \
+    modo = f"Redacción con IA · {report.model}" if report.generated_by == "ia" \
         else "Redacción con plantilla determinista"
     meta = Paragraph(
         f'Organización: <b>{_esc(organization)}</b>  ·  '

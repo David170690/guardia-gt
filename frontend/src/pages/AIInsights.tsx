@@ -169,7 +169,7 @@ export default function AIInsights() {
             <div className="flex items-center gap-3">
               <span className="flex items-center gap-1.5 text-xs opacity-80">
                 <Cpu className="w-3.5 h-3.5" />
-                {report.generated_by === 'mimo' ? `IA · ${report.model}` : 'Plantilla determinista'}
+                {report.generated_by === 'ia' ? `IA · ${report.model}` : 'Plantilla determinista'}
               </span>
               <button
                 onClick={downloadPdf}

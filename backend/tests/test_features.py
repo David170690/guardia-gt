@@ -47,7 +47,7 @@ def test_report_uses_model_when_configured(monkeypatch):
     def fake_call(org, risk, findings, scanned, total):
         captured["called"] = True
         return ai_report.ExecutiveReport(
-            organization=org, risk_level=risk, generated_by="mimo", model="mimo-test",
+            organization=org, risk_level=risk, generated_by="ia", model="modelo-test",
             executive_summary="Resumen del modelo.",
             key_risks=["riesgo del modelo"], remediation_plan=["paso del modelo"],
         )
@@ -55,8 +55,48 @@ def test_report_uses_model_when_configured(monkeypatch):
     monkeypatch.setattr(ai_report, "_generate_with_model", fake_call)
     report = ai_report.generate_report("Muni B", "medio", [], 1, 1)
     assert captured.get("called")
-    assert report.generated_by == "mimo"
+    assert report.generated_by == "ia"
     assert report.executive_summary == "Resumen del modelo."
+
+
+def test_model_chain_skips_deprecated_and_uses_next(monkeypatch):
+    """Si el primer slug :free está descontinuado (404), se usa el siguiente."""
+    import httpx
+    from app.core import config
+    monkeypatch.setattr(config.settings, "AI_API_KEY", "clave")
+    monkeypatch.setattr(config.settings, "AI_MODEL", "modelo-muerto:free,modelo-vivo:free")
+
+    calls = []
+
+    def fake_call(model, messages):
+        calls.append(model)
+        if model == "modelo-muerto:free":
+            req = httpx.Request("POST", "http://x")
+            resp = httpx.Response(404, request=req, text="deprecated")
+            raise httpx.HTTPStatusError("404", request=req, response=resp)
+        return '{"executive_summary": "ok", "key_risks": [], "remediation_plan": []}'
+
+    monkeypatch.setattr(ai_report, "_call_openrouter", fake_call)
+    report = ai_report.generate_report("Org", "bajo", [], 1, 1)
+    assert calls == ["modelo-muerto:free", "modelo-vivo:free"]
+    assert report.generated_by == "ia"
+    assert report.model == "modelo-vivo:free"
+
+
+def test_all_models_dead_falls_back_with_reason(monkeypatch):
+    import httpx
+    from app.core import config
+    monkeypatch.setattr(config.settings, "AI_API_KEY", "clave")
+    monkeypatch.setattr(config.settings, "AI_MODEL", "a:free,b:free")
+
+    def always_404(model, messages):
+        req = httpx.Request("POST", "http://x")
+        raise httpx.HTTPStatusError("404", request=req, response=httpx.Response(404, request=req))
+
+    monkeypatch.setattr(ai_report, "_call_openrouter", always_404)
+    report = ai_report.generate_report("Org", "bajo", [], 1, 1)
+    assert report.generated_by == "plantilla"
+    assert "a:free" in report.fallback_reason and "b:free" in report.fallback_reason
 
 
 def test_report_endpoint_requires_data(client, analyst):

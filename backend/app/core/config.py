@@ -28,10 +28,16 @@ class Settings(BaseSettings):
     # plantilla determinista sobre los hallazgos reales: nunca se inventan datos.
     AI_API_KEY: str = ""
     AI_BASE_URL: str = "https://openrouter.ai/api/v1"
-    # Modelo abierto y gratuito en OpenRouter (sin tarjeta). Los slugs :free cambian
-    # con el tiempo; si uno se descontinúa, la respuesta del informe trae el motivo
-    # en `fallback_reason` y basta con actualizar esta variable.
-    AI_MODEL: str = "meta-llama/llama-3.3-70b-instruct:free"
+    # Modelos abiertos y gratuitos en OpenRouter (sin tarjeta), separados por comas.
+    # Se prueban en orden y se usa el primero que responda; cuando OpenRouter jubila
+    # un slug :free, la cadena salta al siguiente sola. Verificados vigentes al
+    # momento de escribir esto contra https://openrouter.ai/api/v1/models
+    AI_MODEL: str = (
+        "google/gemma-4-31b-it:free,"
+        "nvidia/nemotron-3-super-120b-a12b:free,"
+        "openai/gpt-oss-20b:free,"
+        "nvidia/nemotron-3.5-lightning:free"
+    )
     AI_TIMEOUT_SECONDS: float = 45.0
     AI_MAX_TOKENS: int = 1200
 

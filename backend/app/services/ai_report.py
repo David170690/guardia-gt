@@ -150,17 +150,23 @@ SYSTEM_PROMPT = (
 )
 
 
-def _generate_with_model(organization, risk_level, findings, assets_scanned, assets_total) -> ExecutiveReport:
-    # No se envía `response_format`: varios modelos abiertos gratuitos de OpenRouter
-    # (MiMo entre ellos) rechazan la petición si se pide json_object, y eso hacía que
-    # el informe cayera siempre a la plantilla. El prompt ya exige JSON y
-    # `_parse_model_json` sabe extraerlo aunque venga envuelto en texto o ```json.
+def _candidate_models() -> List[str]:
+    """AI_MODEL puede llevar varios slugs separados por comas; se prueban en orden."""
+    return [m.strip() for m in settings.AI_MODEL.split(",") if m.strip()]
+
+
+# Códigos del proveedor que significan "este modelo no sirve, prueba con otro"
+# (no disponible, descontinuado, ahora de pago, o límite de tasa alcanzado).
+_TRY_NEXT_CODES = {400, 402, 404, 429}
+
+
+def _call_openrouter(model: str, messages: List[Dict[str, str]]) -> str:
+    # No se envía `response_format`: varios modelos abiertos gratuitos lo rechazan y
+    # eso hacía que el informe cayera a la plantilla. El prompt ya exige JSON y
+    # `_parse_model_json` lo extrae aunque venga envuelto en texto o ```json.
     payload = {
-        "model": settings.AI_MODEL,
-        "messages": [
-            {"role": "system", "content": SYSTEM_PROMPT},
-            {"role": "user", "content": _build_prompt(organization, risk_level, findings, assets_scanned, assets_total)},
-        ],
+        "model": model,
+        "messages": messages,
         "temperature": 0.2,
         "max_tokens": settings.AI_MAX_TOKENS,
     }
@@ -177,19 +183,38 @@ def _generate_with_model(organization, risk_level, findings, assets_scanned, ass
             json=payload, headers=headers,
         )
         response.raise_for_status()
-        content = response.json()["choices"][0]["message"]["content"]
+        return response.json()["choices"][0]["message"]["content"]
 
-    parsed = _parse_model_json(content)
-    return ExecutiveReport(
-        organization=organization,
-        risk_level=risk_level,
-        generated_by="mimo",
-        model=settings.AI_MODEL,
-        executive_summary=parsed.get("executive_summary", "").strip()
-        or _template_summary(organization, risk_level, findings, assets_scanned, assets_total),
-        key_risks=[str(x).strip() for x in parsed.get("key_risks", []) if str(x).strip()][:6],
-        remediation_plan=[str(x).strip() for x in parsed.get("remediation_plan", []) if str(x).strip()][:8],
-    )
+
+def _generate_with_model(organization, risk_level, findings, assets_scanned, assets_total) -> ExecutiveReport:
+    messages = [
+        {"role": "system", "content": SYSTEM_PROMPT},
+        {"role": "user", "content": _build_prompt(organization, risk_level, findings, assets_scanned, assets_total)},
+    ]
+    # Los slugs :free de OpenRouter se descontinúan con frecuencia, así que se
+    # prueban varios candidatos en orden y se usa el primero que responda. Cuando
+    # uno queda obsoleto, la cadena salta al siguiente sin intervención.
+    errors: List[str] = []
+    for model in _candidate_models():
+        try:
+            content = _call_openrouter(model, messages)
+        except httpx.HTTPStatusError as exc:
+            errors.append(f"{model}→HTTP {exc.response.status_code}")
+            if exc.response.status_code in _TRY_NEXT_CODES:
+                continue
+            raise
+        parsed = _parse_model_json(content)
+        return ExecutiveReport(
+            organization=organization,
+            risk_level=risk_level,
+            generated_by="ia",
+            model=model,
+            executive_summary=parsed.get("executive_summary", "").strip()
+            or _template_summary(organization, risk_level, findings, assets_scanned, assets_total),
+            key_risks=[str(x).strip() for x in parsed.get("key_risks", []) if str(x).strip()][:6],
+            remediation_plan=[str(x).strip() for x in parsed.get("remediation_plan", []) if str(x).strip()][:8],
+        )
+    raise RuntimeError("Ningún modelo disponible (" + ", ".join(errors) + ")")
 
 
 def _parse_model_json(content: str) -> Dict[str, Any]:
