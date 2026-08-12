@@ -20,6 +20,7 @@ interface Report {
   executive_summary: string
   key_risks: string[]
   remediation_plan: string[]
+  fallback_reason: string | null
 }
 
 const riskColors: Record<string, string> = {
@@ -154,6 +155,12 @@ export default function AIInsights() {
       {/* Resultado */}
       {report && (
         <div className="space-y-4">
+          {report.generated_by === 'plantilla' && report.fallback_reason && (
+            <DataNote tone="demo" title="El informe se generó con plantilla (el modelo falló)">
+              Motivo: <span className="font-mono text-xs">{report.fallback_reason}</span>.
+              Revisa el valor de <span className="font-mono text-xs">AI_MODEL</span> en el servidor.
+            </DataNote>
+          )}
           <div className={`p-5 rounded-xl border flex items-center justify-between ${riskColors[report.risk_level] || 'text-gray-400 bg-gray-500/10 border-gray-500/20'}`}>
             <div>
               <p className="text-xs uppercase opacity-70">Nivel de riesgo</p>
